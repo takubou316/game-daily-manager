@@ -2,7 +2,7 @@
 
 作成日: 2026-08-14
 作業主体: Codex（将来Claudeへ引き継げる構成にする）
-状態: GitHub Pages公開設定中（Supabase接続・Google OAuthログイン確認済み、Pages用ワークフロー登録済み）
+状態: 初期版公開確認済み（PC・スマホ実機表示、本番Googleログイン、Supabase読み込み・永続保存を確認）
 
 ## 1. 目的
 

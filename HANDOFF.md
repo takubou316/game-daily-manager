@@ -46,6 +46,13 @@
 - GitHubリポジトリ`https://github.com/takubou316/game-daily-manager`を作成し、`main`へ初回プッシュ済み。
 - GitHub Pages用のViteサブパス設定と`.github/workflows/deploy.yml`を追加し、`main`へプッシュ済み。
 - GitHub Actionsのビルドでは`VITE_SUPABASE_URL`と`VITE_SUPABASE_PUBLISHABLE_KEY`をRepository Secretsから受け取る。
+- GitHub Actionsのbuild/deploy成功を確認。公開URLは`https://takubou316.github.io/game-daily-manager/`。
+- 公開URLでSupabase接続済みのログイン画面が表示されることを確認。
+- Supabase AuthのSite URLを`https://takubou316.github.io/game-daily-manager`へ変更し、公開URLをRedirect URLにも追加済み。ローカルURLは開発用に維持。
+- Google Cloud OAuthクライアントの承認済みJavaScript生成元に`https://takubou316.github.io`を追加して保存済み。Supabase callback URIは維持。
+- 公開URLでGoogleログインに成功し、Supabaseからタスク一覧が表示されることを確認。
+- 本番URLで回数型タスクを操作後、再読み込みしても値が残っていることをユーザーが確認（Supabase永続保存）。
+- 公開URLをQRコードでスマホから開き、スマホ実機でも表示できることを確認。
 - スマホ実機確認は未実施。ブラウザの390px幅で確認済み。
 - 初期タスクの具体的なゲーム内名称と優先度は未確定。
 - タスク完了、回数型進捗、タスク追加・編集を操作した後のリロード永続性は未確認。
