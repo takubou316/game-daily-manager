@@ -55,10 +55,25 @@ create table if not exists public.task_completions (
   completed_at timestamptz not null default now()
 );
 
+create table if not exists public.resources (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  game_id uuid not null references public.games(id) on delete restrict,
+  name text not null check (char_length(trim(name)) between 1 and 100),
+  current_amount integer not null default 0 check (current_amount >= 0),
+  max_amount integer not null default 1 check (max_amount between 1 and 9999),
+  recovery_minutes integer not null default 8 check (recovery_minutes between 1 and 10080),
+  updated_at timestamptz not null default now(),
+  active boolean not null default true,
+  created_at timestamptz not null default now(),
+  check (current_amount <= max_amount)
+);
+
 alter table public.games enable row level security;
 alter table public.tasks enable row level security;
 alter table public.task_periods enable row level security;
 alter table public.task_completions enable row level security;
+alter table public.resources enable row level security;
 
 create policy "games: own rows" on public.games
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
@@ -72,7 +87,11 @@ create policy "task_periods: own rows" on public.task_periods
 create policy "task_completions: own rows" on public.task_completions
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
+create policy "resources: own rows" on public.resources
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
 create index if not exists games_user_active_idx on public.games(user_id, active);
 create index if not exists tasks_user_active_idx on public.tasks(user_id, active);
 create index if not exists task_periods_task_period_idx on public.task_periods(task_id, period_key);
 create index if not exists task_completions_task_date_idx on public.task_completions(task_id, completed_at desc);
+create index if not exists resources_user_active_idx on public.resources(user_id, active);
