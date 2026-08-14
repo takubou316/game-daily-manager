@@ -2,7 +2,7 @@
 
 作成日: 2026-08-14
 作業主体: Codex（将来Claudeへ引き継げる構成にする）
-状態: UI試作中（タスク管理・ゲーム管理実装済み、Supabase接続準備中）
+状態: GitHub登録済み（Supabase接続・Google OAuthログイン確認済み、GitHub Pages公開準備中）
 
 ## 1. 目的
 
