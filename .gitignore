@@ -5,3 +5,4 @@ dist/
 !.env.example
 preview-qr.png
 preview-qr-mobile.png
+public-qr.png
