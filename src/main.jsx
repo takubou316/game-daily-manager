@@ -382,6 +382,82 @@ function GameManagerModal({ games, tasks, onAdd, onRename, onToggle, onReactivat
   )
 }
 
+function TaskManagerModal({ tasks, onEdit, onDeactivateMany, onDeleteMany, onClose }) {
+  const [query, setQuery] = useState('')
+  const [status, setStatus] = useState('active')
+  const [selectedIds, setSelectedIds] = useState([])
+  const normalizedQuery = normalizeGameSearch(query)
+  const filteredTasks = useMemo(() => sortTasks(tasks.filter((task) => {
+    const matchesStatus = status === 'all' || (status === 'active' ? isTaskActive(task) : !isTaskActive(task))
+    const searchable = normalizeGameSearch(`${task.game} ${task.title}`)
+    return matchesStatus && (!normalizedQuery || searchable.includes(normalizedQuery))
+  })), [tasks, status, normalizedQuery])
+  const visibleIds = filteredTasks.map((task) => task.id)
+  const selectedVisibleCount = visibleIds.filter((id) => selectedIds.includes(id)).length
+
+  function toggleSelected(id) {
+    setSelectedIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])
+  }
+
+  function toggleVisible() {
+    setSelectedIds((current) => selectedVisibleCount === visibleIds.length
+      ? current.filter((id) => !visibleIds.includes(id))
+      : [...new Set([...current, ...visibleIds])])
+  }
+
+  async function deactivateSelected() {
+    if (selectedIds.length === 0) return
+    await onDeactivateMany(selectedIds)
+    setSelectedIds([])
+  }
+
+  async function deleteSelected() {
+    if (selectedIds.length === 0) return
+    const count = selectedIds.length
+    if (!window.confirm(`選択した${count}件のタスクを削除しますか？完了履歴も削除され、元に戻せません。`)) return
+    await onDeleteMany(selectedIds)
+    setSelectedIds([])
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <section className="task-modal task-manager-modal" role="dialog" aria-modal="true" aria-labelledby="task-manager-title">
+        <div className="modal-heading">
+          <div><p className="eyebrow">TASK LIST</p><h2 id="task-manager-title">タスクを一括管理</h2><p>ゲーム情報は残したまま、タスクをまとめて整理できます。</p></div>
+          <button className="modal-close" onClick={onClose} aria-label="閉じる">×</button>
+        </div>
+        <div className="task-manager-toolbar">
+          <input className="task-manager-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ゲーム名・タスク名で検索" aria-label="タスクを検索" />
+          <select className="task-manager-status" value={status} onChange={(event) => { setStatus(event.target.value); setSelectedIds([]) }} aria-label="表示するタスク">
+            <option value="active">有効なタスク</option>
+            <option value="inactive">無効化したタスク</option>
+            <option value="all">すべてのタスク</option>
+          </select>
+        </div>
+        <div className="task-manager-selection">
+          <label className="select-all-label"><input type="checkbox" checked={visibleIds.length > 0 && selectedVisibleCount === visibleIds.length} onChange={toggleVisible} />表示中を全選択</label>
+          <span>{selectedIds.length}件選択中 / {filteredTasks.length}件表示</span>
+        </div>
+        <div className="bulk-task-list">
+          {filteredTasks.length > 0 ? filteredTasks.map((task) => {
+            const isSelected = selectedIds.includes(task.id)
+            return <label className={`bulk-task-row ${isSelected ? 'selected' : ''} ${!isTaskActive(task) ? 'inactive' : ''}`} key={task.id}>
+              <input type="checkbox" checked={isSelected} onChange={() => toggleSelected(task.id)} />
+              <div className={`game-mark ${task.tone || getGameVisual(task.game).tone}`} aria-hidden="true">{task.icon || getGameVisual(task.game).icon}</div>
+              <div className="bulk-task-info"><strong>{task.title}</strong><span>{task.game} ・ {task.period} ・ {priorityLabel[task.priority]}{!isTaskActive(task) ? ' ・ 無効' : ''}</span></div>
+              <button className="edit-button" type="button" onClick={(event) => { event.preventDefault(); onEdit(task) }}>編集</button>
+            </label>
+          }) : <div className="empty-state compact-empty"><span>✓</span><strong>該当するタスクはありません</strong><p>検索条件や表示対象を変えてください。</p></div>}
+        </div>
+        <div className="bulk-actions">
+          <span className="manager-note">削除すると、このタスクの完了履歴も削除されます。</span>
+          <div className="bulk-action-buttons"><button className="pause-button" type="button" onClick={deactivateSelected} disabled={selectedIds.length === 0}>選択を無効化</button><button className="danger-button" type="button" onClick={deleteSelected} disabled={selectedIds.length === 0}>選択を削除</button></div>
+        </div>
+      </section>
+    </div>
+  )
+}
+
 function App() {
   const [tasks, setTasks] = useState(initialTasks)
   const [selectedGame, setSelectedGame] = useState('すべて')
@@ -390,6 +466,7 @@ function App() {
   const [isTaskFormOpen, setIsTaskFormOpen] = useState(false)
   const [gameRecords, setGameRecords] = useState(initialGames.map((name) => ({ id: null, name, active: true })))
   const [isGameManagerOpen, setIsGameManagerOpen] = useState(false)
+  const [isTaskManagerOpen, setIsTaskManagerOpen] = useState(false)
   const [session, setSession] = useState(null)
   const [authLoading, setAuthLoading] = useState(isSupabaseConfigured)
   const [dataLoading, setDataLoading] = useState(isSupabaseConfigured)
@@ -651,6 +728,30 @@ function App() {
     closeTaskForm()
   }
 
+  async function deactivateTasks(ids) {
+    try {
+      if (isCloudMode) {
+        const { error } = await supabase.from('tasks').update({ active: false }).in('id', ids).eq('user_id', session.user.id)
+        if (error) throw error
+      }
+      setTasks((current) => current.map((task) => ids.includes(task.id) ? { ...task, active: false } : task))
+    } catch (error) {
+      showSyncError(error)
+    }
+  }
+
+  async function deleteTasks(ids) {
+    try {
+      if (isCloudMode) {
+        const { error } = await supabase.from('tasks').delete().in('id', ids).eq('user_id', session.user.id)
+        if (error) throw error
+      }
+      setTasks((current) => current.filter((task) => !ids.includes(task.id)))
+    } catch (error) {
+      showSyncError(error)
+    }
+  }
+
   async function addGame(name) {
     if (gameRecords.some((game) => game.name === name)) return
     if (isCloudMode) {
@@ -705,6 +806,7 @@ function App() {
           <span><strong>ゲーム日課</strong><small>今日やることを、迷わず。</small></span>
         </a>
         <nav className="top-actions" aria-label="アプリメニュー">
+          <button className="icon-button" aria-label="タスクを一括管理" title="タスクを一括管理" onClick={() => setIsTaskManagerOpen(true)}>☷</button>
           <button className="icon-button" aria-label="ゲーム管理" onClick={() => setIsGameManagerOpen(true)}>⚙</button>
           <button className="avatar" aria-label="ログアウト" title={isCloudMode ? 'ログアウト' : 'デモモード'} onClick={signOut}>T</button>
         </nav>
@@ -758,6 +860,7 @@ function App() {
       </main>
       <footer className="footer"><span>ゲーム日課</span><span>{isCloudMode ? 'Supabaseに接続中' : '現在は試作データで動作しています'}</span></footer>
       {isTaskFormOpen && <TaskFormModal form={taskForm} isEditing={editingTaskId !== null} onChange={updateTaskForm} onClose={closeTaskForm} onSubmit={submitTaskForm} onDeactivate={deactivateTask} onDelete={deleteTask} availableGames={availableGameNames} />}
+      {isTaskManagerOpen && <TaskManagerModal tasks={tasks} onEdit={(task) => { setIsTaskManagerOpen(false); openEditForm(task) }} onDeactivateMany={deactivateTasks} onDeleteMany={deleteTasks} onClose={() => setIsTaskManagerOpen(false)} />}
       {isGameManagerOpen && <GameManagerModal games={gameRecords} tasks={tasks} onAdd={addGame} onRename={renameGame} onToggle={toggleGame} onReactivate={reactivateTask} onClose={() => setIsGameManagerOpen(false)} />}
     </div>
   )

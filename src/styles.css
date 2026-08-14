@@ -214,6 +214,41 @@ h1 { margin-bottom: 8px; font-size: clamp(28px, 4vw, 38px); letter-spacing: -.05
   font-size: 10px;
 }
 
+.task-manager-modal { width: min(100%, 760px); }
+.task-manager-toolbar { display: grid; grid-template-columns: 1fr 170px; gap: 10px; margin-bottom: 12px; }
+.task-manager-search, .task-manager-status { width: 100%; border: 1px solid #e1e4ec; border-radius: 9px; background: #fbfcfe; color: #28334b; padding: 10px 11px; font: inherit; font-size: 12px; outline: none; }
+.task-manager-search:focus, .task-manager-status:focus { border-color: #8b80e9; box-shadow: 0 0 0 3px rgba(108,92,231,.11); }
+.task-manager-selection { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #9ba3b3; font-size: 10px; margin-bottom: 8px; }
+.select-all-label { display: flex; align-items: center; gap: 7px; color: #697389; font-weight: 700; }
+.select-all-label input, .bulk-task-row input { accent-color: #6c5ce7; }
+.bulk-task-list { display: grid; gap: 5px; max-height: 420px; overflow-y: auto; padding-right: 2px; }
+.bulk-task-row { display: flex; align-items: center; gap: 10px; min-height: 58px; padding: 8px 10px; border: 1px solid #eef0f4; border-radius: 10px; cursor: pointer; }
+.bulk-task-row:hover, .bulk-task-row.selected { border-color: #c9c3f5; background: #fbfaff; }
+.bulk-task-row.inactive { opacity: .58; }
+.bulk-task-row .game-mark { width: 30px; height: 30px; border-radius: 9px; font-size: 16px; }
+.bulk-task-info { min-width: 0; flex: 1; }
+.bulk-task-info strong, .bulk-task-info span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bulk-task-info strong { color: #2d374e; font-size: 12px; }
+.bulk-task-info span { color: #9ba3b3; font-size: 10px; margin-top: 4px; }
+.compact-empty { padding: 26px 20px; }
+.compact-empty span { font-size: 22px; margin-bottom: 8px; }
+.bulk-actions { display: flex; align-items: center; justify-content: space-between; gap: 14px; border-top: 1px solid #eef0f4; padding-top: 16px; margin-top: 15px; }
+.bulk-actions .manager-note { margin: 0; }
+.bulk-action-buttons { display: flex; gap: 8px; flex: none; }
+.danger-button { border: 1px solid #f0cbd0; border-radius: 7px; background: #fff6f6; color: #c45761; font-size: 10px; padding: 6px 9px; }
+.danger-button:hover:not(:disabled) { border-color: #d98d95; background: #fff0f1; }
+.danger-button:disabled, .pause-button:disabled { cursor: default; opacity: .45; }
+
+@media (max-width: 560px) {
+  .task-manager-toolbar { grid-template-columns: 1fr; }
+  .task-manager-selection { align-items: flex-start; flex-direction: column; gap: 7px; }
+  .bulk-task-row { align-items: flex-start; padding: 10px 8px; }
+  .bulk-task-row .edit-button { margin-left: auto; }
+  .bulk-actions { align-items: stretch; flex-direction: column; gap: 10px; }
+  .bulk-action-buttons { display: grid; grid-template-columns: 1fr 1fr; }
+  .bulk-action-buttons button { width: 100%; }
+}
+
 .auth-shell {
   min-height: 100vh;
   display: grid;
