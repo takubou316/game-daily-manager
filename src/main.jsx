@@ -7,9 +7,9 @@ const initialTasks = [
   { id: 1, game: '原神', icon: '✦', tone: 'blue', title: 'デイリー任務を完了する', type: 'single', period: '毎日', dueDays: 0, priority: 3, minutes: 10, completed: false },
   { id: 2, game: 'ハートピア', icon: '♡', tone: 'pink', title: '住民依頼とログイン報酬', type: 'single', period: '毎日', dueDays: 0, priority: 3, minutes: 10, completed: false },
   { id: 3, game: 'NTE', icon: '◈', tone: 'violet', title: 'デイリーミッションを消化する', type: 'single', period: '毎日', dueDays: 0, priority: 2, minutes: 15, completed: false },
-  { id: 4, game: '崩壊：スターレイル', icon: '✧', tone: 'indigo', title: '歴戦余韻をクリアする', type: 'count', period: '今週', dueDays: 2, priority: 3, minutes: 15, progress: 1, target: 3 },
-  { id: 5, game: 'ドラクエウォーク', icon: '◆', tone: 'amber', title: '宝の地図ウィークリーミッション', type: 'count', period: '今週', dueDays: 4, priority: 2, minutes: 20, progress: 3, target: 5 },
-  { id: 6, game: '原神', icon: '✦', tone: 'blue', title: '週ボスを消化する', type: 'single', period: '今週', dueDays: 1, priority: 2, minutes: 20, completed: false },
+  { id: 4, game: '崩壊：スターレイル', icon: '✧', tone: 'indigo', title: '歴戦余韻をクリアする', type: 'count', period: '毎週', dueDays: 2, priority: 3, minutes: 15, progress: 1, target: 3 },
+  { id: 5, game: 'ドラクエウォーク', icon: '◆', tone: 'amber', title: '宝の地図ウィークリーミッション', type: 'count', period: '毎週', dueDays: 4, priority: 2, minutes: 20, progress: 3, target: 5 },
+  { id: 6, game: '原神', icon: '✦', tone: 'blue', title: '週ボスを消化する', type: 'single', period: '毎週', dueDays: 1, priority: 2, minutes: 20, completed: false },
 ]
 
 const initialGames = [...new Set(initialTasks.map((task) => task.game))]
@@ -51,7 +51,7 @@ function getPeriodKey(task, date = new Date()) {
   const endDate = task.endDate || task.end_date || ''
   const today = toDateInputValue(date)
   if (period === '毎日') return `daily:${today}`
-  if (period === '今週') {
+  if (period === '毎週') {
     const weekStart = new Date(date)
     weekStart.setDate(date.getDate() - date.getDay())
     return `weekly:${toDateInputValue(weekStart)}`
@@ -169,7 +169,7 @@ function daysBetween(from, to) {
 function getDueDaysForPeriod(period, startDate, endDate) {
   const today = new Date()
   if (period === '毎日') return 0
-  if (period === '今週') return (7 - today.getDay()) % 7
+  if (period === '毎週') return (7 - today.getDay()) % 7
   if (period === '2週間ごと') {
     const anchor = startDate ? dateFromInput(startDate) : today
     const elapsed = daysBetween(anchor, today)
@@ -359,7 +359,7 @@ function TaskFormModal({ form, isEditing, onChange, onClose, onSubmit, onDeactiv
           <label className="form-field full-field"><span>タスク名</span><input autoFocus required value={form.title} onChange={(event) => onChange('title', event.target.value)} placeholder="例：ログインボーナスを受け取る" /></label>
           <div className="form-grid">
             <label className="form-field"><span>ゲーム</span><input required value={form.game} onChange={(event) => onChange('game', event.target.value)} placeholder="ゲーム名" /><div className="game-suggestions" aria-label="登録済みのゲーム">{gameSuggestions.length > 0 ? gameSuggestions.map((game) => <button key={game} type="button" className={form.game === game ? 'game-suggestion active' : 'game-suggestion'} onClick={() => onChange('game', game)}>{game}</button>) : <small className="game-suggestion-empty">一致する登録済みゲームがありません。新しい名前も入力できます。</small>}</div></label>
-            <label className="form-field"><span>周期</span>{isStock ? <div className="form-static"><strong>蓄積間隔で管理</strong><small>毎日・週次の周期は使いません</small></div> : <select value={form.period} onChange={(event) => onChange('period', event.target.value)}><option>毎日</option><option>今週</option><option>2週間ごと</option><option>毎月</option><option>期間限定</option></select>}</label>
+            <label className="form-field"><span>周期</span>{isStock ? <div className="form-static"><strong>蓄積間隔で管理</strong><small>毎日・週次の周期は使いません</small></div> : <select value={form.period} onChange={(event) => onChange('period', event.target.value)}><option>毎日</option><option>毎週</option><option>2週間ごと</option><option>毎月</option><option>期間限定</option></select>}</label>
           </div>
           <div className="form-grid three-fields">
             <label className="form-field"><span>タスク形式</span><select value={form.type} onChange={(event) => handleTypeChange(event.target.value)}><option value="single">一度で完了</option><option value="count">回数目標</option><option value="stock">蓄積型</option></select></label>
@@ -496,7 +496,7 @@ function TaskManagerModal({ tasks, initialPeriod = 'すべて', onEdit, onDeacti
           <select className="task-manager-status" value={period} onChange={(event) => { setPeriod(event.target.value); setSelectedIds([]) }} aria-label="表示する周期">
             <option value="すべて">すべての周期</option>
             <option value="毎日">毎日</option>
-            <option value="今週">今週</option>
+            <option value="毎週">毎週</option>
             <option value="2週間ごと">2週間ごと</option>
             <option value="毎月">毎月</option>
             <option value="期間限定">期間限定</option>
@@ -550,7 +550,7 @@ function App() {
   const activeTasksAll = tasks.filter((task) => isTaskActive(task) && activeGameSet.has(task.game))
   const doneCount = activeTasksAll.filter((task) => task.completed || (task.type === 'count' && task.progress >= task.target)).length
   const totalCount = activeTasksAll.length
-  const weeklyTasks = activeTasksAll.filter((task) => task.period === '今週')
+  const weeklyTasks = activeTasksAll.filter((task) => task.period === '毎週')
   const weeklyProgress = weeklyTasks.reduce((total, task) => total + (task.type === 'count' ? task.progress : task.completed ? 1 : 0), 0)
   const weeklyTarget = weeklyTasks.reduce((total, task) => total + (task.type === 'count' ? task.target : 1), 0)
   const weeklyByGame = [...weeklyTasks.reduce((groups, task) => {
@@ -953,7 +953,7 @@ function App() {
               <div className="side-card-heading"><div><p className="eyebrow">THIS WEEK</p><h2>今週の進捗</h2></div><span className="calendar-icon">▦</span></div>
               <div className="week-progress"><strong>{weeklyProgress}<small> / {weeklyTarget}</small></strong><span>タスク達成</span><div className="large-track"><span style={{ width: `${weeklyTarget ? weeklyProgress / weeklyTarget * 100 : 0}%` }} /></div></div>
               {weeklyByGame.slice(0, 3).map((group) => <div className="mini-progress" key={group.game}><span className={`mini-dot ${getGameVisual(group.game).tone}-dot`} /><span>{group.game}</span><strong>{group.progress} / {group.target}{group.target > 1 ? '回' : ''}</strong></div>)}
-              <button className="text-link" onClick={() => { setTaskManagerPeriod('今週'); setIsTaskManagerOpen(true) }}>今週のすべてを見る <span>→</span></button>
+              <button className="text-link" onClick={() => { setTaskManagerPeriod('毎週'); setIsTaskManagerOpen(true) }}>今週のすべてを見る <span>→</span></button>
             </section>}
             <section className="side-card tip-card"><span className="tip-icon">✦</span><div><strong>今日のヒント</strong><p>「あと1日」の週課から片付けると、週末に焦らずに済みます。</p></div></section>
           </aside>

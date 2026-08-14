@@ -17,7 +17,7 @@ create table if not exists public.tasks (
   game_id uuid not null references public.games(id) on delete restrict,
   title text not null check (char_length(trim(title)) between 1 and 200),
   type text not null default 'single' check (type in ('single', 'count', 'stock')),
-  period text not null default '毎日' check (period in ('毎日', '今週', '2週間ごと', '毎月', '期間限定')),
+  period text not null default '毎日' check (period in ('毎日', '毎週', '2週間ごと', '毎月', '期間限定')),
   priority smallint not null default 2 check (priority between 1 and 3),
   minutes integer check (minutes is null or minutes between 1 and 999),
   target integer not null default 1 check (target between 1 and 999),
