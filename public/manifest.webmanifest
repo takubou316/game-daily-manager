@@ -1,0 +1,10 @@
+{
+  "name": "ゲーム日課",
+  "short_name": "ゲーム日課",
+  "description": "ゲームの日課・週課をまとめて管理するダッシュボード",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#f7f8fc",
+  "theme_color": "#0f172a",
+  "lang": "ja"
+}
