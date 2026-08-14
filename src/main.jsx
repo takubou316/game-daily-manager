@@ -239,7 +239,7 @@ function TaskRow({ task, onToggle, onIncrement, onDecrement, onCollect, onEdit, 
         </div>
         <h3>{task.title}</h3>
         <div className="task-meta">
-          <span>{task.period}</span>
+          <span>{task.type === 'stock' ? '蓄積型' : task.period}</span>
           {task.minutes ? <><span>・</span><span>{task.minutes}分</span></> : null}
           <span className={task.type === 'stock' || (task.dueDays <= 1 && !isDone) ? 'urgent-text' : ''}>・ {urgencyText(task, now)}</span>
         </div>
@@ -343,6 +343,11 @@ function TaskFormModal({ form, isEditing, onChange, onClose, onSubmit, onDeactiv
   const isCount = form.type === 'count'
   const isStock = form.type === 'stock'
   const gameSuggestions = getGameSuggestions(availableGames, form.game)
+
+  function handleTypeChange(type) {
+    onChange('type', type)
+    if (type === 'stock') onChange('period', '毎日')
+  }
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section className="task-modal" role="dialog" aria-modal="true" aria-labelledby="task-modal-title">
@@ -354,10 +359,10 @@ function TaskFormModal({ form, isEditing, onChange, onClose, onSubmit, onDeactiv
           <label className="form-field full-field"><span>タスク名</span><input autoFocus required value={form.title} onChange={(event) => onChange('title', event.target.value)} placeholder="例：ログインボーナスを受け取る" /></label>
           <div className="form-grid">
             <label className="form-field"><span>ゲーム</span><input required value={form.game} onChange={(event) => onChange('game', event.target.value)} placeholder="ゲーム名" /><div className="game-suggestions" aria-label="登録済みのゲーム">{gameSuggestions.length > 0 ? gameSuggestions.map((game) => <button key={game} type="button" className={form.game === game ? 'game-suggestion active' : 'game-suggestion'} onClick={() => onChange('game', game)}>{game}</button>) : <small className="game-suggestion-empty">一致する登録済みゲームがありません。新しい名前も入力できます。</small>}</div></label>
-            <label className="form-field"><span>周期</span><select value={form.period} onChange={(event) => onChange('period', event.target.value)}><option>毎日</option><option>今週</option><option>2週間ごと</option><option>毎月</option><option>期間限定</option></select></label>
+            <label className="form-field"><span>周期</span>{isStock ? <div className="form-static"><strong>蓄積間隔で管理</strong><small>毎日・週次の周期は使いません</small></div> : <select value={form.period} onChange={(event) => onChange('period', event.target.value)}><option>毎日</option><option>今週</option><option>2週間ごと</option><option>毎月</option><option>期間限定</option></select>}</label>
           </div>
           <div className="form-grid three-fields">
-            <label className="form-field"><span>タスク形式</span><select value={form.type} onChange={(event) => onChange('type', event.target.value)}><option value="single">一度で完了</option><option value="count">回数目標</option><option value="stock">蓄積型</option></select></label>
+            <label className="form-field"><span>タスク形式</span><select value={form.type} onChange={(event) => handleTypeChange(event.target.value)}><option value="single">一度で完了</option><option value="count">回数目標</option><option value="stock">蓄積型</option></select></label>
             <label className="form-field"><span>重要度</span><select value={form.priority} onChange={(event) => onChange('priority', Number(event.target.value))}><option value="3">必須</option><option value="2">できれば</option><option value="1">余裕があれば</option></select></label>
             <label className="form-field"><span>所要時間（任意）</span><input type="number" min="1" max="999" value={form.minutes} onChange={(event) => onChange('minutes', event.target.value === '' ? '' : Number(event.target.value))} placeholder="例：10" /><small>未設定でも登録できます</small></label>
           </div>
@@ -747,7 +752,8 @@ function App() {
     if (!gameName) return
     const visual = getGameVisual(gameName)
     const stockCapacity = Math.max(Number(taskForm.stockCapacity) || 1, 1)
-    const normalized = { ...taskForm, game: gameName, active: taskForm.active !== false, priority: Number(taskForm.priority), minutes: taskForm.minutes === '' ? '' : Math.max(Number(taskForm.minutes) || 1, 1), dueDays: getDueDaysForPeriod(taskForm.period, taskForm.startDate, taskForm.endDate), target: Math.max(Number(taskForm.target) || 1, 1), stockIntervalHours: Math.max(Number(taskForm.stockIntervalHours) || 24, 1), stockCapacity, stockAmount: Math.min(Math.max(Number(taskForm.stockAmount) || 0, 0), stockCapacity), stockUpdatedAt: taskForm.stockUpdatedAt || new Date().toISOString(), icon: visual.icon, tone: visual.tone }
+    const normalizedPeriod = taskForm.type === 'stock' ? '毎日' : taskForm.period
+    const normalized = { ...taskForm, game: gameName, period: normalizedPeriod, active: taskForm.active !== false, priority: Number(taskForm.priority), minutes: taskForm.minutes === '' ? '' : Math.max(Number(taskForm.minutes) || 1, 1), dueDays: getDueDaysForPeriod(normalizedPeriod, taskForm.startDate, taskForm.endDate), target: Math.max(Number(taskForm.target) || 1, 1), stockIntervalHours: Math.max(Number(taskForm.stockIntervalHours) || 24, 1), stockCapacity, stockAmount: Math.min(Math.max(Number(taskForm.stockAmount) || 0, 0), stockCapacity), stockUpdatedAt: taskForm.stockUpdatedAt || new Date().toISOString(), icon: visual.icon, tone: visual.tone }
     try {
       if (isCloudMode) {
         let gameRecord = gameRecords.find((game) => game.name === gameName)
