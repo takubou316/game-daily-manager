@@ -32,6 +32,10 @@ const blankTaskForm = {
   priority: 2,
   minutes: '',
   target: 3,
+  stockIntervalHours: 24,
+  stockCapacity: 7,
+  stockAmount: 0,
+  stockUpdatedAt: '',
   memo: '',
   startDate: '',
   endDate: '',
@@ -63,6 +67,31 @@ function getPeriodKey(task, date = new Date()) {
   return `limited:${startDate}:${endDate}`
 }
 
+function getCurrentStock(task, now = new Date()) {
+  if (task.type !== 'stock') return 0
+  const intervalHours = Math.max(Number(task.stockIntervalHours) || 24, 1)
+  const capacity = Math.max(Number(task.stockCapacity) || 1, 1)
+  const storedAmount = Math.min(Math.max(Number(task.stockAmount) || 0, 0), capacity)
+  const updatedAt = task.stockUpdatedAt ? new Date(task.stockUpdatedAt) : now
+  const elapsedHours = Math.max((now.getTime() - updatedAt.getTime()) / 3600000, 0)
+  return Math.min(storedAmount + Math.floor(elapsedHours / intervalHours), capacity)
+}
+
+function getStockHoursUntilNext(task, now = new Date()) {
+  if (task.type !== 'stock' || getCurrentStock(task, now) >= task.stockCapacity) return 0
+  const intervalHours = Math.max(Number(task.stockIntervalHours) || 24, 1)
+  const updatedAt = task.stockUpdatedAt ? new Date(task.stockUpdatedAt) : now
+  const elapsedHours = Math.max((now.getTime() - updatedAt.getTime()) / 3600000, 0)
+  const remainder = elapsedHours % intervalHours
+  return Math.max(intervalHours - remainder, 0)
+}
+
+function formatStockTime(hours) {
+  if (hours <= 0) return 'まもなく'
+  if (hours < 1) return `${Math.max(Math.ceil(hours * 60), 1)}分後`
+  return `${Math.ceil(hours)}時間後`
+}
+
 function mapDatabaseTask(row, gameName, periodRow) {
   const visual = getGameVisual(gameName)
   const progress = periodRow?.progress || 0
@@ -76,6 +105,10 @@ function mapDatabaseTask(row, gameName, periodRow) {
     priority: row.priority,
     minutes: row.minutes ?? '',
     target: row.target || 1,
+    stockIntervalHours: row.stock_interval_hours || 24,
+    stockCapacity: row.stock_capacity || 7,
+    stockAmount: row.stock_amount || 0,
+    stockUpdatedAt: row.stock_updated_at || new Date().toISOString(),
     memo: row.memo || '',
     startDate: row.start_date || '',
     endDate: row.end_date || '',
@@ -156,7 +189,13 @@ function formatDate() {
   return new Intl.DateTimeFormat('ja-JP', { month: 'numeric', day: 'numeric', weekday: 'short' }).format(new Date())
 }
 
-function urgencyText(task) {
+function urgencyText(task, now = new Date()) {
+  if (task.type === 'stock') {
+    const currentStock = getCurrentStock(task, now)
+    if (currentStock >= task.stockCapacity) return '満タン・受け取ってください'
+    const remaining = task.stockCapacity - currentStock
+    return `あと${remaining}個・次は${formatStockTime(getStockHoursUntilNext(task, now))}`
+  }
   if (task.type === 'count') {
     const remaining = task.target - task.progress
     if (remaining <= 0) return '達成済み'
@@ -173,8 +212,12 @@ function sortTasks(tasks) {
     const aDone = a.completed || (a.type === 'count' && a.progress >= a.target)
     const bDone = b.completed || (b.type === 'count' && b.progress >= b.target)
     if (aDone !== bDone) return Number(aDone) - Number(bDone)
-    const aPressure = a.type === 'count' ? (a.target - a.progress) / Math.max(a.dueDays + 1, 1) : 0
-    const bPressure = b.type === 'count' ? (b.target - b.progress) / Math.max(b.dueDays + 1, 1) : 0
+    const aPressure = a.type === 'count'
+      ? (a.target - a.progress) / Math.max(a.dueDays + 1, 1)
+      : a.type === 'stock' ? getCurrentStock(a) / Math.max(a.stockCapacity, 1) : 0
+    const bPressure = b.type === 'count'
+      ? (b.target - b.progress) / Math.max(b.dueDays + 1, 1)
+      : b.type === 'stock' ? getCurrentStock(b) / Math.max(b.stockCapacity, 1) : 0
     if (a.dueDays !== b.dueDays) return a.dueDays - b.dueDays
     if (aPressure !== bPressure) return bPressure - aPressure
     if (a.priority !== b.priority) return b.priority - a.priority
@@ -184,7 +227,7 @@ function sortTasks(tasks) {
   })
 }
 
-function TaskRow({ task, onToggle, onIncrement, onDecrement, onEdit }) {
+function TaskRow({ task, onToggle, onIncrement, onDecrement, onCollect, onEdit, now }) {
   const isDone = task.completed || (task.type === 'count' && task.progress >= task.target)
   return (
     <article className={`task-row ${isDone ? 'is-done' : ''}`}>
@@ -198,10 +241,19 @@ function TaskRow({ task, onToggle, onIncrement, onDecrement, onEdit }) {
         <div className="task-meta">
           <span>{task.period}</span>
           {task.minutes ? <><span>・</span><span>{task.minutes}分</span></> : null}
-          <span className={task.dueDays <= 1 && !isDone ? 'urgent-text' : ''}>・ {urgencyText(task)}</span>
+          <span className={task.type === 'stock' || (task.dueDays <= 1 && !isDone) ? 'urgent-text' : ''}>・ {urgencyText(task, now)}</span>
         </div>
       </div>
-      {task.type === 'count' ? (
+      {task.type === 'stock' ? (
+        <div className="stock-control" aria-label={`${task.title}の蓄積状況`}>
+          <div className="count-number"><strong>{getCurrentStock(task, now)}</strong><span> / {task.stockCapacity}個</span></div>
+          <div className="progress-track"><span style={{ width: `${Math.min(getCurrentStock(task, now) / task.stockCapacity * 100, 100)}%` }} /></div>
+          <div className="count-actions">
+            <button className="edit-button compact-edit" onClick={() => onEdit(task)} aria-label={`${task.title}を編集`}>編集</button>
+            <button className="add-button" onClick={() => onCollect(task.id)} disabled={getCurrentStock(task, now) === 0}>受け取る</button>
+          </div>
+        </div>
+      ) : task.type === 'count' ? (
         <div className="count-control" aria-label={`${task.title}の進捗`}>
           <div className="count-number"><strong>{task.progress}</strong><span> / {task.target}回</span></div>
           <div className="progress-track"><span style={{ width: `${Math.min(task.progress / task.target * 100, 100)}%` }} /></div>
@@ -289,6 +341,7 @@ function AuthScreen() {
 
 function TaskFormModal({ form, isEditing, onChange, onClose, onSubmit, onDeactivate, onDelete, availableGames }) {
   const isCount = form.type === 'count'
+  const isStock = form.type === 'stock'
   const gameSuggestions = getGameSuggestions(availableGames, form.game)
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
@@ -304,13 +357,14 @@ function TaskFormModal({ form, isEditing, onChange, onClose, onSubmit, onDeactiv
             <label className="form-field"><span>周期</span><select value={form.period} onChange={(event) => onChange('period', event.target.value)}><option>毎日</option><option>今週</option><option>2週間ごと</option><option>毎月</option><option>期間限定</option></select></label>
           </div>
           <div className="form-grid three-fields">
-            <label className="form-field"><span>タスク形式</span><select value={form.type} onChange={(event) => onChange('type', event.target.value)}><option value="single">一度で完了</option><option value="count">回数目標</option></select></label>
+            <label className="form-field"><span>タスク形式</span><select value={form.type} onChange={(event) => onChange('type', event.target.value)}><option value="single">一度で完了</option><option value="count">回数目標</option><option value="stock">蓄積型</option></select></label>
             <label className="form-field"><span>重要度</span><select value={form.priority} onChange={(event) => onChange('priority', Number(event.target.value))}><option value="3">必須</option><option value="2">できれば</option><option value="1">余裕があれば</option></select></label>
             <label className="form-field"><span>所要時間（任意）</span><input type="number" min="1" max="999" value={form.minutes} onChange={(event) => onChange('minutes', event.target.value === '' ? '' : Number(event.target.value))} placeholder="例：10" /><small>未設定でも登録できます</small></label>
           </div>
           {form.period === '2週間ごと' && <div className="form-grid"><label className="form-field"><span>基準日</span><input type="date" required value={form.startDate} onChange={(event) => onChange('startDate', event.target.value)} /><small>この日を起点に14日ごとに発生します</small></label><div /></div>}
           {form.period === '期間限定' && <div className="form-grid"><label className="form-field"><span>開始日</span><input type="date" required value={form.startDate} onChange={(event) => onChange('startDate', event.target.value)} /></label><label className="form-field"><span>終了日</span><input type="date" required min={form.startDate} value={form.endDate} onChange={(event) => onChange('endDate', event.target.value)} /><small>終了日が近い順に表示します</small></label></div>}
           {isCount && <div className="form-grid"><label className="form-field"><span>目標回数</span><input type="number" min="1" max="999" required value={form.target} onChange={(event) => onChange('target', Number(event.target.value))} /><small>期間内に何回やるか</small></label><div /></div>}
+          {isStock && <div className="form-grid stock-form-grid"><label className="form-field"><span>生産間隔（時間）</span><input type="number" min="1" max="8760" required value={form.stockIntervalHours} onChange={(event) => onChange('stockIntervalHours', Number(event.target.value))} /><small>例：24時間で1個</small></label><label className="form-field"><span>最大保管数</span><input type="number" min="1" max="999" required value={form.stockCapacity} onChange={(event) => onChange('stockCapacity', Number(event.target.value))} /><small>満タンになる前に受け取ります</small></label><label className="form-field"><span>現在の蓄積数</span><input type="number" min="0" max={form.stockCapacity || 999} required value={form.stockAmount} onChange={(event) => onChange('stockAmount', Number(event.target.value))} /><small>登録時点のゲーム内の数</small></label></div>}
           <label className="form-field full-field"><span>メモ（任意）</span><textarea value={form.memo} onChange={(event) => onChange('memo', event.target.value)} placeholder="ステージ名や交換するものなど" rows="3" /></label>
           <div className="modal-actions"><div className="destructive-actions">{isEditing && <><button type="button" className="danger-link" onClick={onDeactivate}>無効化</button><button type="button" className="danger-link delete-link" onClick={onDelete}>削除</button></>}</div><div className="modal-main-actions"><button type="button" className="cancel-button" onClick={onClose}>キャンセル</button><button type="submit" className="save-button">{isEditing ? '変更を保存' : 'タスクを追加'}</button></div></div>
         </form>
@@ -481,6 +535,7 @@ function App() {
   const [authLoading, setAuthLoading] = useState(isSupabaseConfigured)
   const [dataLoading, setDataLoading] = useState(isSupabaseConfigured)
   const [syncError, setSyncError] = useState('')
+  const [now, setNow] = useState(() => new Date())
   const isCloudMode = isSupabaseConfigured && Boolean(session)
   const games = ['すべて', ...gameRecords.filter((game) => game.active).map((game) => game.name)]
   const availableGameNames = gameRecords.filter((game) => game.active).map((game) => game.name)
@@ -500,6 +555,11 @@ function App() {
     groups.set(task.game, current)
     return groups
   }, new Map()).values()].sort((a, b) => a.game.localeCompare(b.game, 'ja'))
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 60000)
+    return () => window.clearInterval(timer)
+  }, [])
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
@@ -643,6 +703,19 @@ function App() {
     }
   }
 
+  async function collectStock(id) {
+    const task = tasks.find((item) => item.id === id)
+    if (!task || task.type !== 'stock') return
+    const currentStock = getCurrentStock(task, now)
+    if (currentStock === 0) return
+    const stockUpdatedAt = new Date().toISOString()
+    setTasks((current) => current.map((item) => item.id === id ? { ...item, stockAmount: 0, stockUpdatedAt } : item))
+    if (isCloudMode) {
+      const { error } = await supabase.from('tasks').update({ stock_amount: 0, stock_updated_at: stockUpdatedAt }).eq('id', id).eq('user_id', session.user.id)
+      if (error) showSyncError(error)
+    }
+  }
+
   function openCreateForm() {
     const today = new Date()
     setTaskForm({ ...blankTaskForm, game: selectedGame === 'すべて' ? '原神' : selectedGame, startDate: toDateInputValue(today), endDate: toDateInputValue(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 7)) })
@@ -652,7 +725,8 @@ function App() {
 
   function openEditForm(task) {
     const today = new Date()
-    setTaskForm({ ...blankTaskForm, ...task, target: task.target || 3, memo: task.memo || '', startDate: task.startDate || toDateInputValue(today), endDate: task.endDate || toDateInputValue(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 7)) })
+    const currentStock = task.type === 'stock' ? getCurrentStock(task, now) : task.stockAmount || 0
+    setTaskForm({ ...blankTaskForm, ...task, target: task.target || 3, stockIntervalHours: task.stockIntervalHours || 24, stockCapacity: task.stockCapacity || 7, stockAmount: currentStock, stockUpdatedAt: task.type === 'stock' ? new Date().toISOString() : task.stockUpdatedAt || '', memo: task.memo || '', startDate: task.startDate || toDateInputValue(today), endDate: task.endDate || toDateInputValue(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 7)) })
     setEditingTaskId(task.id)
     setIsTaskFormOpen(true)
   }
@@ -672,7 +746,8 @@ function App() {
     const gameName = taskForm.game.trim()
     if (!gameName) return
     const visual = getGameVisual(gameName)
-    const normalized = { ...taskForm, game: gameName, active: taskForm.active !== false, priority: Number(taskForm.priority), minutes: taskForm.minutes === '' ? '' : Math.max(Number(taskForm.minutes) || 1, 1), dueDays: getDueDaysForPeriod(taskForm.period, taskForm.startDate, taskForm.endDate), target: Math.max(Number(taskForm.target) || 1, 1), icon: visual.icon, tone: visual.tone }
+    const stockCapacity = Math.max(Number(taskForm.stockCapacity) || 1, 1)
+    const normalized = { ...taskForm, game: gameName, active: taskForm.active !== false, priority: Number(taskForm.priority), minutes: taskForm.minutes === '' ? '' : Math.max(Number(taskForm.minutes) || 1, 1), dueDays: getDueDaysForPeriod(taskForm.period, taskForm.startDate, taskForm.endDate), target: Math.max(Number(taskForm.target) || 1, 1), stockIntervalHours: Math.max(Number(taskForm.stockIntervalHours) || 24, 1), stockCapacity, stockAmount: Math.min(Math.max(Number(taskForm.stockAmount) || 0, 0), stockCapacity), stockUpdatedAt: taskForm.stockUpdatedAt || new Date().toISOString(), icon: visual.icon, tone: visual.tone }
     try {
       if (isCloudMode) {
         let gameRecord = gameRecords.find((game) => game.name === gameName)
@@ -696,6 +771,7 @@ function App() {
           end_date: normalized.endDate || null,
           active: normalized.active,
         }
+        if (normalized.type === 'stock') Object.assign(dbTask, { stock_interval_hours: normalized.stockIntervalHours, stock_capacity: normalized.stockCapacity, stock_amount: normalized.stockAmount, stock_updated_at: normalized.stockUpdatedAt })
         const result = editingTaskId
           ? await supabase.from('tasks').update(dbTask).eq('id', editingTaskId).eq('user_id', session.user.id).select('*').single()
           : await supabase.from('tasks').insert(dbTask).select('*').single()
@@ -861,9 +937,9 @@ function App() {
               <button className="add-task-button" onClick={openCreateForm}>＋ タスクを追加</button>
             </div>
             <div className="task-list">
-              {activeTasks.length > 0 ? activeTasks.map((task) => <TaskRow key={task.id} task={task} onToggle={toggleTask} onIncrement={incrementTask} onDecrement={decrementTask} onEdit={openEditForm} />) : <div className="empty-state"><span>🎉</span><strong>今日のタスクは完了です</strong><p>おつかれさま。完了済みから記録を確認できます。</p></div>}
+              {activeTasks.length > 0 ? activeTasks.map((task) => <TaskRow key={task.id} task={task} onToggle={toggleTask} onIncrement={incrementTask} onDecrement={decrementTask} onCollect={collectStock} onEdit={openEditForm} now={now} />) : <div className="empty-state"><span>🎉</span><strong>今日のタスクは完了です</strong><p>おつかれさま。完了済みから記録を確認できます。</p></div>}
             </div>
-            {doneCount > 0 && <details className="completed-details"><summary>完了済みを表示（{doneCount}）</summary><div className="completed-list">{sortTasks(tasks.filter((task) => isTaskActive(task) && (task.completed || (task.type === 'count' && task.progress >= task.target)))).map((task) => <TaskRow key={task.id} task={task} onToggle={toggleTask} onIncrement={incrementTask} onDecrement={decrementTask} onEdit={openEditForm} />)}</div></details>}
+            {doneCount > 0 && <details className="completed-details"><summary>完了済みを表示（{doneCount}）</summary><div className="completed-list">{sortTasks(tasks.filter((task) => isTaskActive(task) && (task.completed || (task.type === 'count' && task.progress >= task.target)))).map((task) => <TaskRow key={task.id} task={task} onToggle={toggleTask} onIncrement={incrementTask} onDecrement={decrementTask} onCollect={collectStock} onEdit={openEditForm} now={now} />)}</div></details>}
           </section>
 
           <aside className="side-column">
