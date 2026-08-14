@@ -382,16 +382,17 @@ function GameManagerModal({ games, tasks, onAdd, onRename, onToggle, onReactivat
   )
 }
 
-function TaskManagerModal({ tasks, onEdit, onDeactivateMany, onDeleteMany, onClose }) {
+function TaskManagerModal({ tasks, initialPeriod = 'すべて', onEdit, onDeactivateMany, onDeleteMany, onClose }) {
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState('active')
+  const [period, setPeriod] = useState(initialPeriod)
   const [selectedIds, setSelectedIds] = useState([])
   const normalizedQuery = normalizeGameSearch(query)
   const filteredTasks = useMemo(() => sortTasks(tasks.filter((task) => {
     const matchesStatus = status === 'all' || (status === 'active' ? isTaskActive(task) : !isTaskActive(task))
     const searchable = normalizeGameSearch(`${task.game} ${task.title}`)
-    return matchesStatus && (!normalizedQuery || searchable.includes(normalizedQuery))
-  })), [tasks, status, normalizedQuery])
+    return matchesStatus && (period === 'すべて' || task.period === period) && (!normalizedQuery || searchable.includes(normalizedQuery))
+  })), [tasks, status, period, normalizedQuery])
   const visibleIds = filteredTasks.map((task) => task.id)
   const selectedVisibleCount = visibleIds.filter((id) => selectedIds.includes(id)).length
 
@@ -433,6 +434,14 @@ function TaskManagerModal({ tasks, onEdit, onDeactivateMany, onDeleteMany, onClo
             <option value="inactive">無効化したタスク</option>
             <option value="all">すべてのタスク</option>
           </select>
+          <select className="task-manager-status" value={period} onChange={(event) => { setPeriod(event.target.value); setSelectedIds([]) }} aria-label="表示する周期">
+            <option value="すべて">すべての周期</option>
+            <option value="毎日">毎日</option>
+            <option value="今週">今週</option>
+            <option value="2週間ごと">2週間ごと</option>
+            <option value="毎月">毎月</option>
+            <option value="期間限定">期間限定</option>
+          </select>
         </div>
         <div className="task-manager-selection">
           <label className="select-all-label"><input type="checkbox" checked={visibleIds.length > 0 && selectedVisibleCount === visibleIds.length} onChange={toggleVisible} />表示中を全選択</label>
@@ -467,6 +476,7 @@ function App() {
   const [gameRecords, setGameRecords] = useState(initialGames.map((name) => ({ id: null, name, active: true })))
   const [isGameManagerOpen, setIsGameManagerOpen] = useState(false)
   const [isTaskManagerOpen, setIsTaskManagerOpen] = useState(false)
+  const [taskManagerPeriod, setTaskManagerPeriod] = useState('すべて')
   const [session, setSession] = useState(null)
   const [authLoading, setAuthLoading] = useState(isSupabaseConfigured)
   const [dataLoading, setDataLoading] = useState(isSupabaseConfigured)
@@ -480,6 +490,16 @@ function App() {
   const activeTasksAll = tasks.filter((task) => isTaskActive(task) && activeGameSet.has(task.game))
   const doneCount = activeTasksAll.filter((task) => task.completed || (task.type === 'count' && task.progress >= task.target)).length
   const totalCount = activeTasksAll.length
+  const weeklyTasks = activeTasksAll.filter((task) => task.period === '今週')
+  const weeklyProgress = weeklyTasks.reduce((total, task) => total + (task.type === 'count' ? task.progress : task.completed ? 1 : 0), 0)
+  const weeklyTarget = weeklyTasks.reduce((total, task) => total + (task.type === 'count' ? task.target : 1), 0)
+  const weeklyByGame = [...weeklyTasks.reduce((groups, task) => {
+    const current = groups.get(task.game) || { game: task.game, progress: 0, target: 0 }
+    current.progress += task.type === 'count' ? task.progress : task.completed ? 1 : 0
+    current.target += task.type === 'count' ? task.target : 1
+    groups.set(task.game, current)
+    return groups
+  }, new Map()).values()].sort((a, b) => a.game.localeCompare(b.game, 'ja'))
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
@@ -806,7 +826,7 @@ function App() {
           <span><strong>ゲーム日課</strong><small>今日やることを、迷わず。</small></span>
         </a>
         <nav className="top-actions" aria-label="アプリメニュー">
-          <button className="icon-button" aria-label="タスクを一括管理" title="タスクを一括管理" onClick={() => setIsTaskManagerOpen(true)}>☷</button>
+          <button className="icon-button" aria-label="タスクを一括管理" title="タスクを一括管理" onClick={() => { setTaskManagerPeriod('すべて'); setIsTaskManagerOpen(true) }}>☷</button>
           <button className="icon-button" aria-label="ゲーム管理" onClick={() => setIsGameManagerOpen(true)}>⚙</button>
           <button className="avatar" aria-label="ログアウト" title={isCloudMode ? 'ログアウト' : 'デモモード'} onClick={signOut}>T</button>
         </nav>
@@ -847,20 +867,19 @@ function App() {
           </section>
 
           <aside className="side-column">
-            <section className="side-card weekly-card">
+            {weeklyTasks.length > 0 && <section className="side-card weekly-card">
               <div className="side-card-heading"><div><p className="eyebrow">THIS WEEK</p><h2>今週の進捗</h2></div><span className="calendar-icon">▦</span></div>
-              <div className="week-progress"><strong>4<small> / 8</small></strong><span>タスク達成</span><div className="large-track"><span style={{ width: '50%' }} /></div></div>
-              <div className="mini-progress"><span className="mini-dot blue-dot" /><span>崩壊：スターレイル</span><strong>1 / 3回</strong></div>
-              <div className="mini-progress"><span className="mini-dot amber-dot" /><span>ドラクエウォーク</span><strong>3 / 5回</strong></div>
-              <button className="text-link">今週のすべてを見る <span>→</span></button>
-            </section>
+              <div className="week-progress"><strong>{weeklyProgress}<small> / {weeklyTarget}</small></strong><span>タスク達成</span><div className="large-track"><span style={{ width: `${weeklyTarget ? weeklyProgress / weeklyTarget * 100 : 0}%` }} /></div></div>
+              {weeklyByGame.slice(0, 3).map((group) => <div className="mini-progress" key={group.game}><span className={`mini-dot ${getGameVisual(group.game).tone}-dot`} /><span>{group.game}</span><strong>{group.progress} / {group.target}{group.target > 1 ? '回' : ''}</strong></div>)}
+              <button className="text-link" onClick={() => { setTaskManagerPeriod('今週'); setIsTaskManagerOpen(true) }}>今週のすべてを見る <span>→</span></button>
+            </section>}
             <section className="side-card tip-card"><span className="tip-icon">✦</span><div><strong>今日のヒント</strong><p>「あと1日」の週課から片付けると、週末に焦らずに済みます。</p></div></section>
           </aside>
         </div>
       </main>
       <footer className="footer"><span>ゲーム日課</span><span>{isCloudMode ? 'Supabaseに接続中' : '現在は試作データで動作しています'}</span></footer>
       {isTaskFormOpen && <TaskFormModal form={taskForm} isEditing={editingTaskId !== null} onChange={updateTaskForm} onClose={closeTaskForm} onSubmit={submitTaskForm} onDeactivate={deactivateTask} onDelete={deleteTask} availableGames={availableGameNames} />}
-      {isTaskManagerOpen && <TaskManagerModal tasks={tasks} onEdit={(task) => { setIsTaskManagerOpen(false); openEditForm(task) }} onDeactivateMany={deactivateTasks} onDeleteMany={deleteTasks} onClose={() => setIsTaskManagerOpen(false)} />}
+      {isTaskManagerOpen && <TaskManagerModal tasks={tasks} initialPeriod={taskManagerPeriod} onEdit={(task) => { setIsTaskManagerOpen(false); openEditForm(task) }} onDeactivateMany={deactivateTasks} onDeleteMany={deleteTasks} onClose={() => setIsTaskManagerOpen(false)} />}
       {isGameManagerOpen && <GameManagerModal games={gameRecords} tasks={tasks} onAdd={addGame} onRename={renameGame} onToggle={toggleGame} onReactivate={reactivateTask} onClose={() => setIsGameManagerOpen(false)} />}
     </div>
   )

@@ -103,6 +103,10 @@ h1 { margin-bottom: 8px; font-size: clamp(28px, 4vw, 38px); letter-spacing: -.05
   .rename-input { margin-top: 2px; }
   .game-modal .modal-heading { margin-bottom: 18px; }
 }
+
+.pink-dot { background: #e36d9a; }
+.violet-dot { background: #8864d8; }
+.indigo-dot { background: #6475d5; }
 .game-suggestions {
   display: flex;
   flex-wrap: wrap;
@@ -215,7 +219,7 @@ h1 { margin-bottom: 8px; font-size: clamp(28px, 4vw, 38px); letter-spacing: -.05
 }
 
 .task-manager-modal { width: min(100%, 760px); }
-.task-manager-toolbar { display: grid; grid-template-columns: 1fr 170px; gap: 10px; margin-bottom: 12px; }
+.task-manager-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) 150px 150px; gap: 10px; margin-bottom: 12px; }
 .task-manager-search, .task-manager-status { width: 100%; border: 1px solid #e1e4ec; border-radius: 9px; background: #fbfcfe; color: #28334b; padding: 10px 11px; font: inherit; font-size: 12px; outline: none; }
 .task-manager-search:focus, .task-manager-status:focus { border-color: #8b80e9; box-shadow: 0 0 0 3px rgba(108,92,231,.11); }
 .task-manager-selection { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #9ba3b3; font-size: 10px; margin-bottom: 8px; }
