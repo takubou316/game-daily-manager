@@ -1,5 +1,6 @@
 const CACHE_NAME = 'game-daily-v0.1.0'
-const APP_SHELL = ['/', '/index.html', '/manifest.webmanifest']
+const BASE_PATH = new URL('./', self.registration.scope).pathname
+const APP_SHELL = [BASE_PATH, `${BASE_PATH}index.html`, `${BASE_PATH}manifest.webmanifest`]
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)))
