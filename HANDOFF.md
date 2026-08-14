@@ -44,6 +44,8 @@
 
 - Supabaseプロジェクトは作成済み。Google OAuthログインまで確認済み。
 - GitHubリポジトリ`https://github.com/takubou316/game-daily-manager`を作成し、`main`へ初回プッシュ済み。
+- GitHub Pages用のViteサブパス設定と`.github/workflows/deploy.yml`を追加し、`main`へプッシュ済み。
+- GitHub Actionsのビルドでは`VITE_SUPABASE_URL`と`VITE_SUPABASE_PUBLISHABLE_KEY`をRepository Secretsから受け取る。
 - スマホ実機確認は未実施。ブラウザの390px幅で確認済み。
 - 初期タスクの具体的なゲーム内名称と優先度は未確定。
 - タスク完了、回数型進捗、タスク追加・編集を操作した後のリロード永続性は未確認。
