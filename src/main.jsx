@@ -1,4 +1,4 @@
-import { StrictMode, useEffect, useMemo, useState } from 'react'
+import { StrictMode, useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { isSupabaseConfigured, supabase } from './lib/supabase'
 import './styles.css'
@@ -13,6 +13,7 @@ const initialTasks = [
 ]
 
 const initialGames = [...new Set(initialTasks.map((task) => task.game))]
+const initialGameRecords = initialGames.map((name) => ({ id: null, name, active: true }))
 
 const priorityLabel = { 3: '必須', 2: 'できれば', 1: '余裕があれば' }
 const priorityClass = { 3: 'must', 2: 'should', 1: 'later' }
@@ -670,7 +671,12 @@ function App() {
   const [taskForm, setTaskForm] = useState(blankTaskForm)
   const [editingTaskId, setEditingTaskId] = useState(null)
   const [isTaskFormOpen, setIsTaskFormOpen] = useState(false)
-  const [gameRecords, setGameRecords] = useState(initialGames.map((name) => ({ id: null, name, active: true })))
+  const [gameRecords, setGameRecords] = useState(initialGameRecords)
+  const gameRecordsRef = useRef(initialGameRecords)
+  const gameLongPressRef = useRef({ timer: null, game: '', activated: false })
+  const suppressGameClickRef = useRef(false)
+  const [isGameReorderMode, setIsGameReorderMode] = useState(false)
+  const [draggingGame, setDraggingGame] = useState('')
   const [isGameManagerOpen, setIsGameManagerOpen] = useState(false)
   const [isTaskManagerOpen, setIsTaskManagerOpen] = useState(false)
   const [taskManagerPeriod, setTaskManagerPeriod] = useState('すべて')
@@ -704,9 +710,70 @@ function App() {
   const visibleResources = useMemo(() => sortResources(resources.filter((resource) => resource.active !== false && (selectedGame === 'すべて' || resource.game === selectedGame)), now), [resources, selectedGame, now])
 
   useEffect(() => {
+    gameRecordsRef.current = gameRecords
+  }, [gameRecords])
+
+  useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 60000)
     return () => window.clearInterval(timer)
   }, [])
+
+  function clearGameLongPress() {
+    if (gameLongPressRef.current.timer) window.clearTimeout(gameLongPressRef.current.timer)
+    gameLongPressRef.current.timer = null
+  }
+
+  function startGameLongPress(game, event) {
+    if (game === 'すべて') return
+    clearGameLongPress()
+    gameLongPressRef.current = { timer: window.setTimeout(() => {
+      gameLongPressRef.current.activated = true
+      suppressGameClickRef.current = true
+      setIsGameReorderMode(true)
+      setDraggingGame(game)
+    }, 500), game, activated: false }
+    event.currentTarget.setPointerCapture?.(event.pointerId)
+  }
+
+  function reorderGameRecords(sourceGame, targetGame) {
+    if (!sourceGame || !targetGame || sourceGame === targetGame || targetGame === 'すべて') return
+    const current = gameRecordsRef.current
+    const activeGames = current.filter((game) => game.active)
+    const sourceIndex = activeGames.findIndex((game) => game.name === sourceGame)
+    const targetIndex = activeGames.findIndex((game) => game.name === targetGame)
+    if (sourceIndex < 0 || targetIndex < 0) return
+    const nextActiveGames = [...activeGames]
+    const [movedGame] = nextActiveGames.splice(sourceIndex, 1)
+    nextActiveGames.splice(targetIndex, 0, movedGame)
+    const nextRecords = [...nextActiveGames, ...current.filter((game) => !game.active)]
+    gameRecordsRef.current = nextRecords
+    setGameRecords(nextRecords)
+  }
+
+  function handleGameChipMove(event) {
+    if (!isGameReorderMode || !draggingGame) return
+    const target = document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-game-chip]')
+    reorderGameRecords(draggingGame, target?.dataset.gameChip || '')
+  }
+
+  async function saveGameOrder(records = gameRecordsRef.current) {
+    if (!isCloudMode) return
+    const activeGames = records.filter((game) => game.active && game.id)
+    const results = await Promise.all(activeGames.map((game, index) => supabase.from('games').update({ sort_order: index }).eq('id', game.id).eq('user_id', session.user.id)))
+    const failed = results.find((result) => result.error)
+    if (failed?.error) showSyncError(failed.error)
+  }
+
+  function finishGameLongPress() {
+    const wasActivated = gameLongPressRef.current.activated
+    clearGameLongPress()
+    gameLongPressRef.current = { timer: null, game: '', activated: false }
+    if (wasActivated) {
+      setIsGameReorderMode(false)
+      setDraggingGame('')
+      void saveGameOrder()
+    }
+  }
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
@@ -730,7 +797,7 @@ function App() {
   }, [])
 
   async function seedInitialData(userId) {
-    const gamePayload = initialGames.map((name) => ({ user_id: userId, name, active: true }))
+    const gamePayload = initialGames.map((name, sortOrder) => ({ user_id: userId, name, active: true, sort_order: sortOrder }))
     const { data: createdGames, error: gameError } = await supabase.from('games').insert(gamePayload).select('*')
     if (gameError) throw gameError
     const gameIds = new Map(createdGames.map((game) => [game.name, game.id]))
@@ -771,6 +838,11 @@ function App() {
       const task = taskRows.find((item) => item.id === period.task_id)
       return [`${period.task_id}:${task ? getPeriodKey({ period: task.period, startDate: task.start_date, endDate: task.end_date }) : period.period_key}`, period]
     }))
+    gameRows.sort((a, b) => {
+      const aOrder = a.sort_order == null ? Number.MAX_SAFE_INTEGER : Number(a.sort_order)
+      const bOrder = b.sort_order == null ? Number.MAX_SAFE_INTEGER : Number(b.sort_order)
+      return aOrder - bOrder || String(a.created_at || '').localeCompare(String(b.created_at || ''))
+    })
     setGameRecords(gameRows.map((game) => ({ id: game.id, name: game.name, active: game.active })))
     setTasks(taskRows.map((task) => mapDatabaseTask(task, gameMap.get(task.game_id) || '未分類', periodMap.get(`${task.id}:${getPeriodKey({ period: task.period, startDate: task.start_date, endDate: task.end_date })}`))))
     const resourceResult = await supabase.from('resources').select('*').eq('user_id', userId).order('created_at')
@@ -910,7 +982,7 @@ function App() {
     try {
       let gameRecord = gameRecords.find((game) => game.name === gameName)
       if (isCloudMode && !gameRecord?.id) {
-        const { data, error } = await supabase.from('games').insert({ user_id: session.user.id, name: gameName, active: true }).select('*').single()
+        const { data, error } = await supabase.from('games').insert({ user_id: session.user.id, name: gameName, active: true, sort_order: gameRecords.filter((game) => game.active).length }).select('*').single()
         if (error) throw error
         gameRecord = { id: data.id, name: data.name, active: data.active }
         setGameRecords((current) => [...current, gameRecord])
@@ -1007,7 +1079,7 @@ function App() {
       if (isCloudMode) {
         let gameRecord = gameRecords.find((game) => game.name === gameName)
         if (!gameRecord?.id) {
-          const { data, error } = await supabase.from('games').insert({ user_id: session.user.id, name: gameName, active: true }).select('*').single()
+          const { data, error } = await supabase.from('games').insert({ user_id: session.user.id, name: gameName, active: true, sort_order: gameRecords.filter((game) => game.active).length }).select('*').single()
           if (error) throw error
           gameRecord = { id: data.id, name: data.name, active: data.active }
           setGameRecords((current) => [...current, gameRecord])
@@ -1106,7 +1178,7 @@ function App() {
   async function addGame(name) {
     if (gameRecords.some((game) => game.name === name)) return
     if (isCloudMode) {
-      const { data, error } = await supabase.from('games').insert({ user_id: session.user.id, name, active: true }).select('*').single()
+      const { data, error } = await supabase.from('games').insert({ user_id: session.user.id, name, active: true, sort_order: gameRecords.filter((game) => game.active).length }).select('*').single()
       if (error) {
         showSyncError(error)
         return
@@ -1183,7 +1255,7 @@ function App() {
         <section className="filter-bar" aria-label="ゲームで絞り込む">
           <span className="filter-label">ゲームで絞り込む</span>
           <div className="game-filters">
-            {games.map((game) => <button key={game} className={selectedGame === game ? 'filter-chip active' : 'filter-chip'} onClick={() => setSelectedGame(game)}>{game}</button>)}
+            {games.map((game) => <button key={game} type="button" data-game-chip={game} className={`${selectedGame === game ? 'filter-chip active' : 'filter-chip'}${isGameReorderMode ? ' reorder-mode' : ''}${draggingGame === game ? ' dragging' : ''}`} title={game === 'すべて' ? 'すべてのゲームを表示' : '長押しして並び替え'} onClick={(event) => { if (suppressGameClickRef.current) { suppressGameClickRef.current = false; event.preventDefault(); return } if (!isGameReorderMode) setSelectedGame(game) }} onPointerDown={(event) => startGameLongPress(game, event)} onPointerMove={handleGameChipMove} onPointerUp={finishGameLongPress} onPointerCancel={finishGameLongPress}>{game}</button>)}
           </div>
         </section>
 
