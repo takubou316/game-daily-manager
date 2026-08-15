@@ -373,6 +373,26 @@ h1 { margin-bottom: 8px; font-size: clamp(28px, 4vw, 38px); letter-spacing: -.05
   font-weight: 700;
 }
 
+.resource-source-row {
+  min-height: 25px;
+  margin-top: 8px;
+}
+
+.resource-link {
+  border: 0;
+  background: transparent;
+  color: #a86523;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 0;
+  text-decoration: none;
+}
+
+.resource-link:hover {
+  color: #d48645;
+  text-decoration: underline;
+}
+
 .resource-actions {
   display: flex;
   align-items: center;

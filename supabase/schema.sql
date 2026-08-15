@@ -63,6 +63,7 @@ create table if not exists public.resources (
   current_amount integer not null default 0 check (current_amount >= 0),
   max_amount integer not null default 1 check (max_amount between 1 and 9999),
   recovery_minutes integer not null default 8 check (recovery_minutes between 1 and 10080),
+  check_url text not null default '',
   updated_at timestamptz not null default now(),
   active boolean not null default true,
   created_at timestamptz not null default now(),

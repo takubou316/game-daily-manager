@@ -24,6 +24,13 @@ const gameVisuals = {
   ドラクエウォーク: { icon: '◆', tone: 'amber' },
 }
 
+const defaultResourceUrls = {
+  原神: 'https://act.hoyolab.com/app/community-game-records-sea/index.html#/ys',
+  '崩壊：スターレイル': 'https://act.hoyolab.com/app/community-game-records-sea/rpg/m.html',
+  ZZZ: 'https://act.hoyolab.com/app/zzz-game-record/index.html#/zzz',
+  NTE: '',
+}
+
 const blankTaskForm = {
   title: '',
   game: '原神',
@@ -47,10 +54,15 @@ const blankResourceForm = {
   currentAmount: 0,
   maxAmount: 200,
   recoveryMinutes: 8,
+  checkUrl: defaultResourceUrls.原神,
 }
 
 function getGameVisual(game) {
   return gameVisuals[game] || { icon: '●', tone: 'blue' }
+}
+
+function getDefaultResourceUrl(game) {
+  return defaultResourceUrls[game] || ''
 }
 
 function getPeriodKey(task, date = new Date()) {
@@ -135,6 +147,7 @@ function mapDatabaseResource(row, gameName) {
     currentAmount: row.current_amount || 0,
     maxAmount: row.max_amount || 1,
     recoveryMinutes: row.recovery_minutes || 1,
+    checkUrl: row.check_url || getDefaultResourceUrl(gameName),
     updatedAt: row.updated_at || new Date().toISOString(),
     active: row.active !== false,
   }
@@ -599,6 +612,7 @@ function ResourceCard({ resource, now, onConsume, onEdit }) {
       <div className="resource-amount"><strong>{currentAmount}</strong><span> / {maxAmount}</span></div>
       <div className="progress-track resource-progress"><span style={{ width: `${percentage}%` }} /></div>
       <div className="resource-meta"><span>{formatResourceTime(getResourceMinutesUntilFull(resource, now))}</span><span>1回復 / {resource.recoveryMinutes}分</span></div>
+      <div className="resource-source-row">{resource.checkUrl ? <a className="resource-link" href={resource.checkUrl} target="_blank" rel="noreferrer">確認先を開く ↗</a> : <button className="resource-link" type="button" onClick={() => onEdit(resource)}>確認先を設定</button>}</div>
       <div className="resource-actions">
         {[10, 20, 40].map((amount) => <button key={amount} className="step-button" type="button" onClick={() => onConsume(resource.id, amount)} disabled={currentAmount === 0}>−{amount}</button>)}
         <button className="edit-button resource-edit-button" type="button" onClick={() => onEdit(resource)}>現在値を修正</button>
@@ -610,6 +624,11 @@ function ResourceCard({ resource, now, onConsume, onEdit }) {
 function ResourceManagerModal({ resources, form, editingId, availableGames, now, onChange, onSubmit, onEdit, onDelete, onClose }) {
   const gameSuggestions = getGameSuggestions(availableGames, form.game)
 
+  function changeGame(game) {
+    onChange('game', game)
+    if (!form.checkUrl || form.checkUrl === getDefaultResourceUrl(form.game)) onChange('checkUrl', getDefaultResourceUrl(game))
+  }
+
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section className="task-modal resource-manager-modal" role="dialog" aria-modal="true" aria-labelledby="resource-manager-title">
@@ -620,13 +639,14 @@ function ResourceManagerModal({ resources, form, editingId, availableGames, now,
         <form onSubmit={onSubmit}>
           <div className="form-grid resource-form-grid">
             <label className="form-field"><span>リソース名</span><input required value={form.name} onChange={(event) => onChange('name', event.target.value)} placeholder="例：スタミナ" /></label>
-            <label className="form-field"><span>ゲーム</span><input required value={form.game} onChange={(event) => onChange('game', event.target.value)} placeholder="ゲーム名" /><div className="game-suggestions" aria-label="登録済みのゲーム">{gameSuggestions.length > 0 ? gameSuggestions.map((game) => <button key={game} type="button" className={form.game === game ? 'game-suggestion active' : 'game-suggestion'} onClick={() => onChange('game', game)}>{game}</button>) : <small className="game-suggestion-empty">新しいゲーム名も入力できます。</small>}</div></label>
+            <label className="form-field"><span>ゲーム</span><input required value={form.game} onChange={(event) => changeGame(event.target.value)} placeholder="ゲーム名" /><div className="game-suggestions" aria-label="登録済みのゲーム">{gameSuggestions.length > 0 ? gameSuggestions.map((game) => <button key={game} type="button" className={form.game === game ? 'game-suggestion active' : 'game-suggestion'} onClick={() => changeGame(game)}>{game}</button>) : <small className="game-suggestion-empty">新しいゲーム名も入力できます。</small>}</div></label>
           </div>
           <div className="form-grid resource-form-grid">
             <label className="form-field"><span>現在値</span><input type="number" min="0" max={form.maxAmount || 9999} required value={form.currentAmount} onChange={(event) => onChange('currentAmount', event.target.value === '' ? '' : Number(event.target.value))} /><small>HoYoLABで見た値を入力</small></label>
             <label className="form-field"><span>最大値</span><input type="number" min="1" max="9999" required value={form.maxAmount} onChange={(event) => onChange('maxAmount', event.target.value === '' ? '' : Number(event.target.value))} /><small>満タンになる上限</small></label>
             <label className="form-field"><span>回復間隔（分）</span><input type="number" min="1" max="10080" required value={form.recoveryMinutes} onChange={(event) => onChange('recoveryMinutes', event.target.value === '' ? '' : Number(event.target.value))} /><small>1ポイント回復する時間</small></label>
           </div>
+          <label className="form-field full-field"><span>確認先URL（任意）</span><input type="url" value={form.checkUrl} onChange={(event) => onChange('checkUrl', event.target.value)} placeholder="HoYoLABなどの確認ページURL" /><small>スマホではアプリが開く場合があります。NTEなどは公式サイトのURLも登録できます。</small></label>
           <div className="modal-actions"><div>{editingId && <button type="button" className="danger-link delete-link" onClick={() => onDelete(editingId)}>このリソースを削除</button>}</div><div className="modal-main-actions"><button type="button" className="cancel-button" onClick={onClose}>閉じる</button><button type="submit" className="save-button">{editingId ? '変更を保存' : 'リソースを追加'}</button></div></div>
         </form>
         <div className="manager-divider" />
@@ -855,7 +875,8 @@ function App() {
 
   function openResourceManager() {
     setEditingResourceId(null)
-    setResourceForm({ ...blankResourceForm, game: selectedGame === 'すべて' ? '原神' : selectedGame })
+    const game = selectedGame === 'すべて' ? '原神' : selectedGame
+    setResourceForm({ ...blankResourceForm, game, checkUrl: getDefaultResourceUrl(game) })
     setIsResourceManagerOpen(true)
   }
 
@@ -867,6 +888,7 @@ function App() {
       currentAmount: getCurrentResource(resource, now),
       maxAmount: resource.maxAmount,
       recoveryMinutes: resource.recoveryMinutes,
+      checkUrl: resource.checkUrl || '',
     })
     setIsResourceManagerOpen(true)
   }
@@ -883,6 +905,7 @@ function App() {
     const maxAmount = Math.max(Number(resourceForm.maxAmount) || 1, 1)
     const currentAmount = Math.min(Math.max(Number(resourceForm.currentAmount) || 0, 0), maxAmount)
     const recoveryMinutes = Math.max(Number(resourceForm.recoveryMinutes) || 1, 1)
+    const checkUrl = String(resourceForm.checkUrl || '').trim()
     const updatedAt = new Date().toISOString()
     try {
       let gameRecord = gameRecords.find((game) => game.name === gameName)
@@ -895,9 +918,9 @@ function App() {
         gameRecord = { id: null, name: gameName, active: true }
         setGameRecords((current) => [...current, gameRecord])
       }
-      const normalized = { name, game: gameName, currentAmount, maxAmount, recoveryMinutes, updatedAt, active: true }
+      const normalized = { name, game: gameName, currentAmount, maxAmount, recoveryMinutes, checkUrl, updatedAt, active: true }
       if (isCloudMode) {
-        const dbResource = { user_id: session.user.id, game_id: gameRecord.id, name, current_amount: currentAmount, max_amount: maxAmount, recovery_minutes: recoveryMinutes, updated_at: updatedAt, active: true }
+        const dbResource = { user_id: session.user.id, game_id: gameRecord.id, name, current_amount: currentAmount, max_amount: maxAmount, recovery_minutes: recoveryMinutes, check_url: checkUrl, updated_at: updatedAt, active: true }
         const result = editingResourceId
           ? await supabase.from('resources').update(dbResource).eq('id', editingResourceId).eq('user_id', session.user.id).select('*').single()
           : await supabase.from('resources').insert(dbResource).select('*').single()
@@ -910,7 +933,8 @@ function App() {
         setResources((current) => [...current, { ...normalized, id: Date.now() }])
       }
       setEditingResourceId(null)
-      setResourceForm({ ...blankResourceForm, game: selectedGame === 'すべて' ? gameName : selectedGame })
+      const nextGame = selectedGame === 'すべて' ? gameName : selectedGame
+      setResourceForm({ ...blankResourceForm, game: nextGame, checkUrl: getDefaultResourceUrl(nextGame) })
     } catch (error) {
       showSyncError(error)
     }
@@ -942,7 +966,8 @@ function App() {
     }
     setResources((current) => current.filter((item) => item.id !== id))
     setEditingResourceId(null)
-    setResourceForm({ ...blankResourceForm, game: selectedGame === 'すべて' ? '原神' : selectedGame })
+    const nextGame = selectedGame === 'すべて' ? '原神' : selectedGame
+    setResourceForm({ ...blankResourceForm, game: nextGame, checkUrl: getDefaultResourceUrl(nextGame) })
   }
 
   function openCreateForm() {
