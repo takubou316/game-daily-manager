@@ -612,7 +612,7 @@ function ResourceCard({ resource, now, onConsume, onEdit }) {
       <div className="resource-amount"><strong>{currentAmount}</strong><span> / {maxAmount}</span></div>
       <div className="progress-track resource-progress"><span style={{ width: `${percentage}%` }} /></div>
       <div className="resource-meta"><span>{formatResourceTime(getResourceMinutesUntilFull(resource, now))}</span><span>1回復 / {resource.recoveryMinutes}分</span></div>
-      <div className="resource-source-row">{resource.checkUrl ? <a className="resource-link" href={resource.checkUrl} target="_blank" rel="noreferrer">確認先を開く ↗</a> : <button className="resource-link" type="button" onClick={() => onEdit(resource)}>確認先を設定</button>}</div>
+      {resource.checkUrl && <div className="resource-source-row"><a className="resource-link" href={resource.checkUrl} target="_blank" rel="noreferrer">確認先を開く ↗</a></div>}
       <div className="resource-actions">
         {[10, 20, 40].map((amount) => <button key={amount} className="step-button" type="button" onClick={() => onConsume(resource.id, amount)} disabled={currentAmount === 0}>−{amount}</button>)}
         <button className="edit-button resource-edit-button" type="button" onClick={() => onEdit(resource)}>現在値を修正</button>
@@ -1187,13 +1187,13 @@ function App() {
           </div>
         </section>
 
-        <section className="resource-panel">
+        {visibleResources.length > 0 && <section className="resource-panel">
           <div className="section-heading">
             <div><h2>スタミナ・リソース <span>{visibleResources.length}</span></h2><p>HoYoLABで確認した値を基準に自動回復</p></div>
             <button className="add-task-button" onClick={openResourceManager}>＋ リソースを追加</button>
           </div>
-          {visibleResources.length > 0 ? <div className="resource-grid">{visibleResources.map((resource) => <ResourceCard key={resource.id} resource={resource} now={now} onConsume={consumeResource} onEdit={openResourceEdit} />)}</div> : <div className="resource-empty"><span>⚡</span><div><strong>スタミナを登録できます</strong><p>HoYoLABなどで現在値を確認して、回復間隔と一緒に追加しましょう。</p></div><button className="pause-button" type="button" onClick={openResourceManager}>登録する</button></div>}
-        </section>
+          <div className="resource-grid">{visibleResources.map((resource) => <ResourceCard key={resource.id} resource={resource} now={now} onConsume={consumeResource} onEdit={openResourceEdit} />)}</div>
+        </section>}
 
         <div className="dashboard-grid">
           <section className="task-panel">
