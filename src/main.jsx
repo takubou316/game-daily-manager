@@ -47,6 +47,10 @@ const blankTaskForm = {
   memo: '',
   startDate: '',
   endDate: '',
+  startAt: '',
+  endAt: '',
+  limitedDays: 7,
+  limitedHours: 0,
 }
 
 const blankResourceForm = {
@@ -85,7 +89,7 @@ function getPeriodKey(task, date = new Date()) {
     return `biweekly:${toDateInputValue(periodStart)}`
   }
   if (period === '毎月') return `monthly:${today.slice(0, 7)}`
-  return `limited:${startDate}:${endDate}`
+  return `limited:${task.startAt || task.start_at || startDate}:${task.endAt || task.end_at || endDate}`
 }
 
 function getCurrentStock(task, now = new Date()) {
@@ -183,7 +187,10 @@ function mapDatabaseTask(row, gameName, periodRow) {
     memo: row.memo || '',
     startDate: row.start_date || '',
     endDate: row.end_date || '',
-    dueDays: getDueDaysForPeriod(row.period, row.start_date || '', row.end_date || ''),
+    startAt: row.start_at || '',
+    endAt: row.end_at || '',
+    ...getLimitedDurationValues(row.end_at || '', row.end_date || '', new Date()),
+    dueDays: getDueDaysForPeriod(row.period, row.start_date || '', row.end_date || '', row.end_at || ''),
     active: row.active,
     progress,
     completed: Boolean(periodRow?.completed) || (row.type === 'count' && progress >= row.target),
@@ -237,7 +244,27 @@ function daysBetween(from, to) {
   return Math.round((to - from) / 86400000)
 }
 
-function getDueDaysForPeriod(period, startDate, endDate) {
+function getRemainingLimitedHours(endAt, endDate, now = new Date()) {
+  const end = endAt ? new Date(endAt) : endDate ? new Date(`${endDate}T23:59:59`) : null
+  if (!end || Number.isNaN(end.getTime())) return 0
+  return Math.max(Math.ceil((end - now) / 3600000), 0)
+}
+
+function formatLimitedRemaining(hours) {
+  if (hours <= 0) return '期限切れ'
+  const days = Math.floor(hours / 24)
+  const remainingHours = hours % 24
+  if (days > 0 && remainingHours > 0) return `あと${days}日${remainingHours}時間`
+  if (days > 0) return `あと${days}日`
+  return `あと${remainingHours}時間`
+}
+
+function getLimitedDurationValues(endAt, endDate = '', now = new Date()) {
+  const remainingHours = getRemainingLimitedHours(endAt, endDate, now)
+  return { limitedDays: Math.floor(remainingHours / 24), limitedHours: remainingHours % 24 }
+}
+
+function getDueDaysForPeriod(period, startDate, endDate, endAt) {
   const today = new Date()
   if (period === '毎日') return 0
   if (period === '毎週') return (7 - today.getDay()) % 7
@@ -248,7 +275,7 @@ function getDueDaysForPeriod(period, startDate, endDate) {
     return (14 - (elapsed % 14)) % 14
   }
   if (period === '毎月') return new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate() - today.getDate()
-  if (period === '期間限定' && endDate) return Math.max(daysBetween(today, dateFromInput(endDate)), 0)
+  if (period === '期間限定') return Math.floor(getRemainingLimitedHours(endAt, endDate, today) / 24)
   return 7
 }
 
@@ -270,10 +297,12 @@ function urgencyText(task, now = new Date()) {
   if (task.type === 'count') {
     const remaining = task.target - task.progress
     if (remaining <= 0) return '達成済み'
+    if (task.period === '期間限定') return `${formatLimitedRemaining(getRemainingLimitedHours(task.endAt, task.endDate, now))}・残り${remaining}回`
     if (task.dueDays === 0) return `今日中にあと${remaining}回`
     return `あと${task.dueDays}日・残り${remaining}回`
   }
   if (task.completed) return '完了'
+  if (task.period === '期間限定') return formatLimitedRemaining(getRemainingLimitedHours(task.endAt, task.endDate, now))
   if (task.dueDays === 0) return '今日中'
   return `あと${task.dueDays}日`
 }
@@ -438,7 +467,7 @@ function TaskFormModal({ form, isEditing, onChange, onClose, onSubmit, onDeactiv
             <label className="form-field"><span>所要時間（任意）</span><input type="number" min="1" max="999" value={form.minutes} onChange={(event) => onChange('minutes', event.target.value === '' ? '' : Number(event.target.value))} placeholder="例：10" /><small>未設定でも登録できます</small></label>
           </div>
           {form.period === '2週間ごと' && <div className="form-grid"><label className="form-field"><span>基準日</span><input type="date" required value={form.startDate} onChange={(event) => onChange('startDate', event.target.value)} /><small>この日を起点に14日ごとに発生します</small></label><div /></div>}
-          {form.period === '期間限定' && <div className="form-grid"><label className="form-field"><span>開始日</span><input type="date" required value={form.startDate} onChange={(event) => onChange('startDate', event.target.value)} /></label><label className="form-field"><span>終了日</span><input type="date" required min={form.startDate} value={form.endDate} onChange={(event) => onChange('endDate', event.target.value)} /><small>終了日が近い順に表示します</small></label></div>}
+          {form.period === '期間限定' && <div className="form-grid limited-duration-grid"><label className="form-field"><span>残り日数</span><input type="number" min="0" max="3650" required value={form.limitedDays} onChange={(event) => onChange('limitedDays', event.target.value === '' ? '' : Number(event.target.value))} /><small>保存した時点からの期間</small></label><label className="form-field"><span>残り時間</span><input type="number" min="0" max="23" required value={form.limitedHours} onChange={(event) => onChange('limitedHours', event.target.value === '' ? '' : Number(event.target.value))} /><small>0〜23時間で入力</small></label></div>}
           {isCount && <div className="form-grid"><label className="form-field"><span>目標回数</span><input type="number" min="1" max="999" required value={form.target} onChange={(event) => onChange('target', Number(event.target.value))} /><small>期間内に何回やるか</small></label><div /></div>}
           {isStock && <div className="form-grid stock-form-grid"><label className="form-field"><span>生産間隔（時間）</span><input type="number" min="1" max="8760" required value={form.stockIntervalHours} onChange={(event) => onChange('stockIntervalHours', Number(event.target.value))} /><small>例：24時間で1個</small></label><label className="form-field"><span>最大保管数</span><input type="number" min="1" max="999" required value={form.stockCapacity} onChange={(event) => onChange('stockCapacity', Number(event.target.value))} /><small>満タンになる前に受け取ります</small></label><label className="form-field"><span>現在の蓄積数</span><input type="number" min="0" max={form.stockCapacity || 999} required value={form.stockAmount} onChange={(event) => onChange('stockAmount', Number(event.target.value))} /><small>登録時点のゲーム内の数</small></label></div>}
           <label className="form-field full-field"><span>メモ（任意）</span><textarea value={form.memo} onChange={(event) => onChange('memo', event.target.value)} placeholder="ステージ名や交換するものなど" rows="3" /></label>
@@ -1044,7 +1073,7 @@ function App() {
 
   function openCreateForm() {
     const today = new Date()
-    setTaskForm({ ...blankTaskForm, game: selectedGame === 'すべて' ? '原神' : selectedGame, startDate: toDateInputValue(today), endDate: toDateInputValue(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 7)) })
+    setTaskForm({ ...blankTaskForm, game: selectedGame === 'すべて' ? '原神' : selectedGame, startDate: toDateInputValue(today), endDate: toDateInputValue(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 7)), limitedDays: 7, limitedHours: 0 })
     setEditingTaskId(null)
     setIsTaskFormOpen(true)
   }
@@ -1052,7 +1081,8 @@ function App() {
   function openEditForm(task) {
     const today = new Date()
     const currentStock = task.type === 'stock' ? getCurrentStock(task, now) : task.stockAmount || 0
-    setTaskForm({ ...blankTaskForm, ...task, target: task.target || 3, stockIntervalHours: task.stockIntervalHours || 24, stockCapacity: task.stockCapacity || 7, stockAmount: currentStock, stockUpdatedAt: task.type === 'stock' ? new Date().toISOString() : task.stockUpdatedAt || '', memo: task.memo || '', startDate: task.startDate || toDateInputValue(today), endDate: task.endDate || toDateInputValue(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 7)) })
+    const limitedValues = task.period === '期間限定' ? getLimitedDurationValues(task.endAt, task.endDate, now) : { limitedDays: 7, limitedHours: 0 }
+    setTaskForm({ ...blankTaskForm, ...task, ...limitedValues, target: task.target || 3, stockIntervalHours: task.stockIntervalHours || 24, stockCapacity: task.stockCapacity || 7, stockAmount: currentStock, stockUpdatedAt: task.type === 'stock' ? new Date().toISOString() : task.stockUpdatedAt || '', memo: task.memo || '', startDate: task.startDate || toDateInputValue(today), endDate: task.endDate || toDateInputValue(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 7)), startAt: task.startAt || '', endAt: task.endAt || '' })
     setEditingTaskId(task.id)
     setIsTaskFormOpen(true)
   }
@@ -1074,7 +1104,18 @@ function App() {
     const visual = getGameVisual(gameName)
     const stockCapacity = Math.max(Number(taskForm.stockCapacity) || 1, 1)
     const normalizedPeriod = taskForm.type === 'stock' ? '毎日' : taskForm.period
-    const normalized = { ...taskForm, game: gameName, period: normalizedPeriod, active: taskForm.active !== false, priority: Number(taskForm.priority), minutes: taskForm.minutes === '' ? '' : Math.max(Number(taskForm.minutes) || 1, 1), dueDays: getDueDaysForPeriod(normalizedPeriod, taskForm.startDate, taskForm.endDate), target: Math.max(Number(taskForm.target) || 1, 1), stockIntervalHours: Math.max(Number(taskForm.stockIntervalHours) || 24, 1), stockCapacity, stockAmount: Math.min(Math.max(Number(taskForm.stockAmount) || 0, 0), stockCapacity), stockUpdatedAt: taskForm.stockUpdatedAt || new Date().toISOString(), icon: visual.icon, tone: visual.tone }
+    const limitedDays = Math.max(Number(taskForm.limitedDays) || 0, 0)
+    const limitedHours = Math.min(Math.max(Number(taskForm.limitedHours) || 0, 0), 23)
+    const limitedDurationHours = limitedDays * 24 + limitedHours
+    if (normalizedPeriod === '期間限定' && limitedDurationHours <= 0) {
+      setSyncError('期間限定タスクは、残り時間を1時間以上入力してください。')
+      return
+    }
+    const limitedStartAt = normalizedPeriod === '期間限定' ? new Date() : null
+    const limitedEndAt = limitedStartAt ? new Date(limitedStartAt.getTime() + limitedDurationHours * 3600000) : null
+    const normalizedStartDate = limitedStartAt ? toDateInputValue(limitedStartAt) : taskForm.startDate
+    const normalizedEndDate = limitedEndAt ? toDateInputValue(limitedEndAt) : taskForm.endDate
+    const normalized = { ...taskForm, game: gameName, period: normalizedPeriod, active: taskForm.active !== false, priority: Number(taskForm.priority), minutes: taskForm.minutes === '' ? '' : Math.max(Number(taskForm.minutes) || 1, 1), startDate: normalizedStartDate, endDate: normalizedEndDate, startAt: limitedStartAt?.toISOString() || taskForm.startAt || '', endAt: limitedEndAt?.toISOString() || taskForm.endAt || '', limitedDays, limitedHours, dueDays: getDueDaysForPeriod(normalizedPeriod, normalizedStartDate, normalizedEndDate, limitedEndAt?.toISOString() || taskForm.endAt || ''), target: Math.max(Number(taskForm.target) || 1, 1), stockIntervalHours: Math.max(Number(taskForm.stockIntervalHours) || 24, 1), stockCapacity, stockAmount: Math.min(Math.max(Number(taskForm.stockAmount) || 0, 0), stockCapacity), stockUpdatedAt: taskForm.stockUpdatedAt || new Date().toISOString(), icon: visual.icon, tone: visual.tone }
     try {
       if (isCloudMode) {
         let gameRecord = gameRecords.find((game) => game.name === gameName)
@@ -1096,6 +1137,8 @@ function App() {
           memo: normalized.memo || '',
           start_date: normalized.startDate || null,
           end_date: normalized.endDate || null,
+          start_at: normalized.startAt || null,
+          end_at: normalized.endAt || null,
           active: normalized.active,
         }
         if (normalized.type === 'stock') Object.assign(dbTask, { stock_interval_hours: normalized.stockIntervalHours, stock_capacity: normalized.stockCapacity, stock_amount: normalized.stockAmount, stock_updated_at: normalized.stockUpdatedAt })
