@@ -259,6 +259,17 @@ function formatLimitedRemaining(hours) {
   return `あと${remainingHours}時間`
 }
 
+const LONG_LIMITED_TASK_HOURS = 7 * 24
+
+function isLongTermLimitedTask(task, now = new Date()) {
+  return task.period === '期間限定' && getRemainingLimitedHours(task.endAt, task.endDate, now) > LONG_LIMITED_TASK_HOURS
+}
+
+function isPendingTaskVisible(task, now = new Date()) {
+  if (task.type !== 'stock') return true
+  return getCurrentStock(task, now) >= 1
+}
+
 function getLimitedDurationValues(endAt, endDate = '', now = new Date()) {
   const remainingHours = getRemainingLimitedHours(endAt, endDate, now)
   return { limitedDays: Math.floor(remainingHours / 24), limitedHours: remainingHours % 24 }
@@ -722,7 +733,10 @@ function App() {
   const availableGameNames = gameRecords.filter((game) => game.active).map((game) => game.name)
   const activeGameSet = useMemo(() => new Set(gameRecords.filter((game) => game.active).map((game) => game.name)), [gameRecords])
   const visibleTasks = useMemo(() => sortTasks(tasks.filter((task) => isTaskActive(task) && activeGameSet.has(task.game) && (selectedGame === 'すべて' || task.game === selectedGame))), [tasks, selectedGame, activeGameSet])
-  const activeTasks = visibleTasks.filter((task) => !(task.completed || (task.type === 'count' && task.progress >= task.target)))
+  const activeTasks = visibleTasks.filter((task) => !(task.completed || (task.type === 'count' && task.progress >= task.target)) && isPendingTaskVisible(task, now))
+  const longTermLimitedTasks = activeTasks.filter((task) => isLongTermLimitedTask(task, now))
+  const routineTasks = activeTasks.filter((task) => !isLongTermLimitedTask(task, now))
+  const waitingStockTasks = visibleTasks.filter((task) => task.type === 'stock' && !(task.completed || (task.type === 'count' && task.progress >= task.target)) && getCurrentStock(task, now) < 1)
   const activeTasksAll = tasks.filter((task) => isTaskActive(task) && activeGameSet.has(task.game))
   const doneCount = activeTasksAll.filter((task) => task.completed || (task.type === 'count' && task.progress >= task.target)).length
   const totalCount = activeTasksAll.length
@@ -1313,12 +1327,13 @@ function App() {
         <div className="dashboard-grid">
           <section className="task-panel">
             <div className="section-heading">
-              <div><h2>未完了のタスク <span>{activeTasks.length}</span></h2><p>期限が近いものから片付けよう</p></div>
+              <div><h2>未完了のタスク <span>{routineTasks.length}</span></h2><p>期限が近いものから片付けよう</p></div>
               <button className="add-task-button" onClick={openCreateForm}>＋ タスクを追加</button>
             </div>
             <div className="task-list">
-              {activeTasks.length > 0 ? activeTasks.map((task) => <TaskRow key={task.id} task={task} onToggle={toggleTask} onIncrement={incrementTask} onDecrement={decrementTask} onCollect={collectStock} onEdit={openEditForm} now={now} />) : <div className="empty-state"><span>🎉</span><strong>今日のタスクは完了です</strong><p>おつかれさま。完了済みから記録を確認できます。</p></div>}
+              {routineTasks.length > 0 ? routineTasks.map((task) => <TaskRow key={task.id} task={task} onToggle={toggleTask} onIncrement={incrementTask} onDecrement={decrementTask} onCollect={collectStock} onEdit={openEditForm} now={now} />) : <div className="empty-state"><span>{longTermLimitedTasks.length > 0 || waitingStockTasks.length > 0 ? '🗂️' : '🎉'}</span><strong>{longTermLimitedTasks.length > 0 || waitingStockTasks.length > 0 ? '表示対象のタスクはありません' : '今日のタスクは完了です'}</strong><p>{longTermLimitedTasks.length > 0 && `長期の期間限定は下にまとめています（${longTermLimitedTasks.length}件）。`}{waitingStockTasks.length > 0 && ' 蓄積型は1個以上たまると表示されます。'}{longTermLimitedTasks.length === 0 && waitingStockTasks.length === 0 && 'おつかれさま。完了済みから記録を確認できます。'}</p></div>}
             </div>
+            {longTermLimitedTasks.length > 0 && <details className="completed-details long-term-details"><summary>長期の期間限定を表示（{longTermLimitedTasks.length}）</summary><div className="completed-list">{longTermLimitedTasks.map((task) => <TaskRow key={task.id} task={task} onToggle={toggleTask} onIncrement={incrementTask} onDecrement={decrementTask} onCollect={collectStock} onEdit={openEditForm} now={now} />)}</div></details>}
             {doneCount > 0 && <details className="completed-details"><summary>完了済みを表示（{doneCount}）</summary><div className="completed-list">{sortTasks(tasks.filter((task) => isTaskActive(task) && (task.completed || (task.type === 'count' && task.progress >= task.target)))).map((task) => <TaskRow key={task.id} task={task} onToggle={toggleTask} onIncrement={incrementTask} onDecrement={decrementTask} onCollect={collectStock} onEdit={openEditForm} now={now} />)}</div></details>}
           </section>
 
