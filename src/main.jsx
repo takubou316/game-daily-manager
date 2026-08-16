@@ -44,6 +44,8 @@ const blankTaskForm = {
   stockCapacity: 7,
   stockAmount: 0,
   stockUpdatedAt: '',
+  repeatDays: 3,
+  lastCompletedAt: '',
   memo: '',
   startDate: '',
   endDate: '',
@@ -92,6 +94,7 @@ function getPeriodKey(task, date = new Date()) {
     return `biweekly:${toDateInputValue(periodStart)}`
   }
   if (period === '毎月') return `monthly:${today.slice(0, 7)}`
+  if (period === '完了から') return 'relative'
   return `limited:${task.startAt || task.start_at || startDate}:${task.endAt || task.end_at || endDate}`
 }
 
@@ -103,6 +106,38 @@ function getPeriodLookupKeys(task, date = new Date()) {
   const legacyWeekStart = new Date(date)
   legacyWeekStart.setDate(date.getDate() - 7)
   return [currentKey, `weekly:${toDateInputValue(legacyWeekStart)}`]
+}
+
+function getRelativeDueAt(task) {
+  const lastCompletedAt = task.lastCompletedAt || task.last_completed_at || ''
+  if (!lastCompletedAt) return null
+  const dueAt = new Date(lastCompletedAt)
+  if (Number.isNaN(dueAt.getTime())) return null
+  dueAt.setDate(dueAt.getDate() + Math.max(Number(task.repeatDays) || 3, 1))
+  return dueAt
+}
+
+function getRelativeRemainingHours(task, now = new Date()) {
+  const dueAt = getRelativeDueAt(task)
+  if (!dueAt) return 0
+  return Math.max(Math.ceil((dueAt.getTime() - now.getTime()) / 3600000), 0)
+}
+
+function isTaskCoolingDown(task, now = new Date()) {
+  return task.period === '完了から' && Boolean(getRelativeDueAt(task)) && getRelativeRemainingHours(task, now) > 0
+}
+
+function getTaskProgress(task, now = new Date()) {
+  if (task.type === 'count' && task.period === '完了から' && task.lastCompletedAt && !isTaskCoolingDown(task, now)) return 0
+  return Number(task.progress) || 0
+}
+
+function isTaskCompleted(task, now = new Date()) {
+  if (task.period === '完了から') {
+    if (isTaskCoolingDown(task, now)) return true
+    return task.type === 'count' ? getTaskProgress(task, now) >= task.target : false
+  }
+  return Boolean(task.completed) || (task.type === 'count' && getTaskProgress(task, now) >= task.target)
 }
 
 function getCurrentStock(task, now = new Date()) {
@@ -197,16 +232,20 @@ function mapDatabaseTask(row, gameName, periodRow) {
     stockCapacity: row.stock_capacity || 7,
     stockAmount: row.stock_amount || 0,
     stockUpdatedAt: row.stock_updated_at || new Date().toISOString(),
+    repeatDays: row.repeat_days || 3,
+    lastCompletedAt: row.last_completed_at || '',
     memo: row.memo || '',
     startDate: row.start_date || '',
     endDate: row.end_date || '',
     startAt: row.start_at || '',
     endAt: row.end_at || '',
     ...getLimitedDurationValues(row.end_at || '', row.end_date || '', new Date()),
-    dueDays: getDueDaysForPeriod(row.period, row.start_date || '', row.end_date || '', row.end_at || ''),
+    dueDays: getDueDaysForPeriod(row.period, row.start_date || '', row.end_date || '', row.end_at || '', row.repeat_days || 3, row.last_completed_at || ''),
     active: row.active,
     progress,
-    completed: Boolean(periodRow?.completed) || (row.type === 'count' && progress >= row.target),
+    completed: row.period === '完了から'
+      ? Boolean(row.last_completed_at && getRelativeRemainingHours({ period: row.period, repeatDays: row.repeat_days || 3, lastCompletedAt: row.last_completed_at }) > 0)
+      : Boolean(periodRow?.completed) || (row.type === 'count' && progress >= row.target),
   }
 }
 
@@ -288,7 +327,7 @@ function getLimitedDurationValues(endAt, endDate = '', now = new Date()) {
   return { limitedDays: Math.floor(remainingHours / 24), limitedHours: remainingHours % 24 }
 }
 
-function getDueDaysForPeriod(period, startDate, endDate, endAt) {
+function getDueDaysForPeriod(period, startDate, endDate, endAt, repeatDays = 3, lastCompletedAt = '') {
   const today = new Date()
   if (period === '毎日') return 0
   if (period === '毎週') return (7 - ((today.getDay() + 6) % 7)) % 7
@@ -300,7 +339,12 @@ function getDueDaysForPeriod(period, startDate, endDate, endAt) {
   }
   if (period === '毎月') return new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate() - today.getDate()
   if (period === '期間限定') return Math.floor(getRemainingLimitedHours(endAt, endDate, today) / 24)
+  if (period === '完了から') return getRelativeDueDays({ period, repeatDays, lastCompletedAt }, today)
   return 7
+}
+
+function getRelativeDueDays(task, now = new Date()) {
+  return Math.floor(getRelativeRemainingHours(task, now) / 24)
 }
 
 function isTaskActive(task) {
@@ -319,28 +363,36 @@ function urgencyText(task, now = new Date()) {
     return `あと${remaining}個・次は${formatStockTime(getStockHoursUntilNext(task, now))}`
   }
   if (task.type === 'count') {
-    const remaining = task.target - task.progress
+    const remaining = task.target - getTaskProgress(task, now)
     if (remaining <= 0) return '達成済み'
     if (task.period === '期間限定') return `${formatLimitedRemaining(getRemainingLimitedHours(task.endAt, task.endDate, now))}・残り${remaining}回`
+    if (task.period === '完了から') {
+      const remainingHours = getRelativeRemainingHours(task, now)
+      return remainingHours > 0 ? `${formatLimitedRemaining(remainingHours)}で再表示` : '実行できます'
+    }
     if (task.dueDays === 0) return `今日中にあと${remaining}回`
     return `あと${task.dueDays}日・残り${remaining}回`
   }
-  if (task.completed) return '完了'
+  if (isTaskCompleted(task, now)) return '完了'
   if (task.period === '期間限定') return formatLimitedRemaining(getRemainingLimitedHours(task.endAt, task.endDate, now))
+  if (task.period === '完了から') {
+    const remainingHours = getRelativeRemainingHours(task, now)
+    return remainingHours > 0 ? `${formatLimitedRemaining(remainingHours)}で再表示` : '実行できます'
+  }
   if (task.dueDays === 0) return '今日中'
   return `あと${task.dueDays}日`
 }
 
-function sortTasks(tasks) {
+function sortTasks(tasks, now = new Date()) {
   return [...tasks].sort((a, b) => {
-    const aDone = a.completed || (a.type === 'count' && a.progress >= a.target)
-    const bDone = b.completed || (b.type === 'count' && b.progress >= b.target)
+    const aDone = isTaskCompleted(a, now)
+    const bDone = isTaskCompleted(b, now)
     if (aDone !== bDone) return Number(aDone) - Number(bDone)
     const aPressure = a.type === 'count'
-      ? (a.target - a.progress) / Math.max(a.dueDays + 1, 1)
+      ? (a.target - getTaskProgress(a, now)) / Math.max(a.dueDays + 1, 1)
       : a.type === 'stock' ? getCurrentStock(a) / Math.max(a.stockCapacity, 1) : 0
     const bPressure = b.type === 'count'
-      ? (b.target - b.progress) / Math.max(b.dueDays + 1, 1)
+      ? (b.target - getTaskProgress(b, now)) / Math.max(b.dueDays + 1, 1)
       : b.type === 'stock' ? getCurrentStock(b) / Math.max(b.stockCapacity, 1) : 0
     if (a.dueDays !== b.dueDays) return a.dueDays - b.dueDays
     if (aPressure !== bPressure) return bPressure - aPressure
@@ -352,7 +404,9 @@ function sortTasks(tasks) {
 }
 
 function TaskRow({ task, onToggle, onIncrement, onDecrement, onCollect, onEdit, now }) {
-  const isDone = task.completed || (task.type === 'count' && task.progress >= task.target)
+  const isDone = isTaskCompleted(task, now)
+  const progress = getTaskProgress(task, now)
+  const periodLabel = task.period === '完了から' ? `完了から${task.repeatDays}日後` : task.period
   return (
     <article className={`task-row ${isDone ? 'is-done' : ''}`}>
       <div className={`game-mark ${task.tone || getGameVisual(task.game).tone}`} aria-hidden="true">{task.icon || getGameVisual(task.game).icon}</div>
@@ -363,7 +417,7 @@ function TaskRow({ task, onToggle, onIncrement, onDecrement, onCollect, onEdit, 
         </div>
         <h3>{task.title}</h3>
         <div className="task-meta">
-          <span>{task.type === 'stock' ? '蓄積型' : task.period}</span>
+          <span>{task.type === 'stock' ? '蓄積型' : periodLabel}</span>
           {task.minutes ? <><span>・</span><span>{task.minutes}分</span></> : null}
           <span className={task.type === 'stock' || (task.dueDays <= 1 && !isDone) ? 'urgent-text' : ''}>・ {urgencyText(task, now)}</span>
         </div>
@@ -379,11 +433,11 @@ function TaskRow({ task, onToggle, onIncrement, onDecrement, onCollect, onEdit, 
         </div>
       ) : task.type === 'count' ? (
         <div className="count-control" aria-label={`${task.title}の進捗`}>
-          <div className="count-number"><strong>{task.progress}</strong><span> / {task.target}回</span></div>
-          <div className="progress-track"><span style={{ width: `${Math.min(task.progress / task.target * 100, 100)}%` }} /></div>
+          <div className="count-number"><strong>{progress}</strong><span> / {task.target}回</span></div>
+          <div className="progress-track"><span style={{ width: `${Math.min(progress / task.target * 100, 100)}%` }} /></div>
           <div className="count-actions">
             <button className="edit-button compact-edit" onClick={() => onEdit(task)} aria-label={`${task.title}を編集`}>編集</button>
-            <button className="step-button" onClick={() => onDecrement(task.id)} disabled={task.progress === 0} aria-label="1回減らす">−</button>
+            <button className="step-button" onClick={() => onDecrement(task.id)} disabled={progress === 0} aria-label="1回減らす">−</button>
             <button className={`add-button ${isDone ? 'done-button' : ''}`} onClick={() => onIncrement(task.id)} disabled={isDone}>{isDone ? '達成済み' : '+1 回'}</button>
           </div>
         </div>
@@ -483,7 +537,7 @@ function TaskFormModal({ form, isEditing, onChange, onClose, onSubmit, onDeactiv
           <label className="form-field full-field"><span>タスク名</span><input autoFocus required value={form.title} onChange={(event) => onChange('title', event.target.value)} placeholder="例：ログインボーナスを受け取る" /></label>
           <div className="form-grid">
             <label className="form-field"><span>ゲーム</span><input required value={form.game} onChange={(event) => onChange('game', event.target.value)} placeholder="ゲーム名" /><div className="game-suggestions" aria-label="登録済みのゲーム">{gameSuggestions.length > 0 ? gameSuggestions.map((game) => <button key={game} type="button" className={form.game === game ? 'game-suggestion active' : 'game-suggestion'} onClick={() => onChange('game', game)}>{game}</button>) : <small className="game-suggestion-empty">一致する登録済みゲームがありません。新しい名前も入力できます。</small>}</div></label>
-            <label className="form-field"><span>周期</span>{isStock ? <div className="form-static"><strong>蓄積間隔で管理</strong><small>毎日・週次の周期は使いません</small></div> : <select value={form.period} onChange={(event) => onChange('period', event.target.value)}><option>毎日</option><option>毎週</option><option>2週間ごと</option><option>毎月</option><option>期間限定</option></select>}</label>
+          <label className="form-field"><span>周期</span>{isStock ? <div className="form-static"><strong>蓄積間隔で管理</strong><small>毎日・週次の周期は使いません</small></div> : <select value={form.period} onChange={(event) => onChange('period', event.target.value)}><option>毎日</option><option>毎週</option><option>2週間ごと</option><option>毎月</option><option>期間限定</option><option value="完了から">完了から○日後</option></select>}</label>
           </div>
           <div className="form-grid three-fields">
             <label className="form-field"><span>タスク形式</span><select value={form.type} onChange={(event) => handleTypeChange(event.target.value)}><option value="single">一度で完了</option><option value="count">回数目標</option><option value="stock">蓄積型</option></select></label>
@@ -491,6 +545,7 @@ function TaskFormModal({ form, isEditing, onChange, onClose, onSubmit, onDeactiv
             <label className="form-field"><span>所要時間（任意）</span><input type="number" min="1" max="999" value={form.minutes} onChange={(event) => onChange('minutes', event.target.value === '' ? '' : Number(event.target.value))} placeholder="例：10" /><small>未設定でも登録できます</small></label>
           </div>
           {form.period === '2週間ごと' && <div className="form-grid"><label className="form-field"><span>基準日</span><input type="date" required value={form.startDate} onChange={(event) => onChange('startDate', event.target.value)} /><small>この日を起点に14日ごとに発生します</small></label><div /></div>}
+          {form.period === '完了から' && <div className="form-grid"><label className="form-field"><span>再表示までの日数</span><input type="number" min="1" max="3650" required value={form.repeatDays} onChange={(event) => onChange('repeatDays', event.target.value === '' ? '' : Number(event.target.value))} /><small>完了・回収した日から数えます</small></label><div /></div>}
           {form.period === '期間限定' && <div className="form-grid limited-duration-grid"><label className="form-field"><span>残り日数</span><input type="number" min="0" max="3650" required value={form.limitedDays} onChange={(event) => onChange('limitedDays', event.target.value === '' ? '' : Number(event.target.value))} /><small>保存した時点からの期間</small></label><label className="form-field"><span>残り時間</span><input type="number" min="0" max="23" required value={form.limitedHours} onChange={(event) => onChange('limitedHours', event.target.value === '' ? '' : Number(event.target.value))} /><small>0〜23時間で入力</small></label></div>}
           {isCount && <div className="form-grid"><label className="form-field"><span>目標回数</span><input type="number" min="1" max="999" required value={form.target} onChange={(event) => onChange('target', Number(event.target.value))} /><small>期間内に何回やるか</small></label><div /></div>}
           {isStock && <div className="form-grid stock-form-grid"><label className="form-field"><span>生産間隔（時間）</span><input type="number" min="1" max="8760" required value={form.stockIntervalHours} onChange={(event) => onChange('stockIntervalHours', Number(event.target.value))} /><small>例：24時間で1個</small></label><label className="form-field"><span>最大保管数</span><input type="number" min="1" max="999" required value={form.stockCapacity} onChange={(event) => onChange('stockCapacity', Number(event.target.value))} /><small>満タンになる前に受け取ります</small></label><label className="form-field"><span>現在の蓄積数</span><input type="number" min="0" max={form.stockCapacity || 999} required value={form.stockAmount} onChange={(event) => onChange('stockAmount', Number(event.target.value))} /><small>登録時点のゲーム内の数</small></label></div>}
@@ -624,6 +679,7 @@ function TaskManagerModal({ tasks, initialPeriod = 'すべて', onEdit, onDeacti
             <option value="2週間ごと">2週間ごと</option>
             <option value="毎月">毎月</option>
             <option value="期間限定">期間限定</option>
+            <option value="完了から">完了から○日後</option>
           </select>
         </div>
         <div className="task-manager-selection">
@@ -636,7 +692,7 @@ function TaskManagerModal({ tasks, initialPeriod = 'すべて', onEdit, onDeacti
             return <label className={`bulk-task-row ${isSelected ? 'selected' : ''} ${!isTaskActive(task) ? 'inactive' : ''}`} key={task.id}>
               <input type="checkbox" checked={isSelected} onChange={() => toggleSelected(task.id)} />
               <div className={`game-mark ${task.tone || getGameVisual(task.game).tone}`} aria-hidden="true">{task.icon || getGameVisual(task.game).icon}</div>
-              <div className="bulk-task-info"><strong>{task.title}</strong><span>{task.game} ・ {task.period} ・ {priorityLabel[task.priority]}{!isTaskActive(task) ? ' ・ 無効' : ''}</span></div>
+              <div className="bulk-task-info"><strong>{task.title}</strong><span>{task.game} ・ {task.period === '完了から' ? `完了から${task.repeatDays || 3}日後` : task.period} ・ {priorityLabel[task.priority]}{!isTaskActive(task) ? ' ・ 無効' : ''}</span></div>
               <button className="edit-button" type="button" onClick={(event) => { event.preventDefault(); onEdit(task) }}>編集</button>
             </label>
           }) : <div className="empty-state compact-empty"><span>✓</span><strong>該当するタスクはありません</strong><p>検索条件や表示対象を変えてください。</p></div>}
@@ -745,13 +801,13 @@ function App() {
   const games = ['すべて', ...gameRecords.filter((game) => game.active).map((game) => game.name)]
   const availableGameNames = gameRecords.filter((game) => game.active).map((game) => game.name)
   const activeGameSet = useMemo(() => new Set(gameRecords.filter((game) => game.active).map((game) => game.name)), [gameRecords])
-  const visibleTasks = useMemo(() => sortTasks(tasks.filter((task) => isTaskActive(task) && activeGameSet.has(task.game) && (selectedGame === 'すべて' || task.game === selectedGame))), [tasks, selectedGame, activeGameSet])
-  const activeTasks = visibleTasks.filter((task) => !(task.completed || (task.type === 'count' && task.progress >= task.target)) && isPendingTaskVisible(task, now))
+  const visibleTasks = useMemo(() => sortTasks(tasks.filter((task) => isTaskActive(task) && activeGameSet.has(task.game) && (selectedGame === 'すべて' || task.game === selectedGame)), now), [tasks, selectedGame, activeGameSet, now])
+  const activeTasks = visibleTasks.filter((task) => !isTaskCompleted(task, now) && isPendingTaskVisible(task, now))
   const longTermLimitedTasks = activeTasks.filter((task) => isLongTermLimitedTask(task, now))
   const routineTasks = activeTasks.filter((task) => !isLongTermLimitedTask(task, now))
-  const waitingStockTasks = visibleTasks.filter((task) => task.type === 'stock' && !(task.completed || (task.type === 'count' && task.progress >= task.target)) && getCurrentStock(task, now) < 1)
+  const waitingStockTasks = visibleTasks.filter((task) => task.type === 'stock' && !isTaskCompleted(task, now) && getCurrentStock(task, now) < 1)
   const activeTasksAll = tasks.filter((task) => isTaskActive(task) && activeGameSet.has(task.game))
-  const doneCount = activeTasksAll.filter((task) => task.completed || (task.type === 'count' && task.progress >= task.target)).length
+  const doneCount = activeTasksAll.filter((task) => isTaskCompleted(task, now)).length
   const totalCount = activeTasksAll.length
   const weeklyTasks = activeTasksAll.filter((task) => task.period === '毎週')
   const weeklyProgress = weeklyTasks.reduce((total, task) => total + (task.type === 'count' ? task.progress : task.completed ? 1 : 0), 0)
@@ -928,7 +984,7 @@ function App() {
     return () => { mounted = false }
   }, [session])
 
-  async function saveTaskPeriod(task, progress, completed) {
+  async function saveTaskPeriod(task, progress, completed, lastCompletedAt = task.lastCompletedAt || '') {
     if (!isCloudMode) return
     const { error } = await supabase.from('task_periods').upsert({
       user_id: session.user.id,
@@ -938,6 +994,10 @@ function App() {
       completed,
     }, { onConflict: 'task_id,period_key' })
     if (error) throw error
+    if (task.period === '完了から') {
+      const { error: taskError } = await supabase.from('tasks').update({ last_completed_at: lastCompletedAt || null }).eq('id', task.id).eq('user_id', session.user.id)
+      if (taskError) throw taskError
+    }
   }
 
   function showSyncError(error) {
@@ -951,10 +1011,11 @@ function App() {
   async function toggleTask(id) {
     const task = tasks.find((item) => item.id === id)
     if (!task) return
-    const completed = !task.completed
-    setTasks((current) => current.map((item) => item.id === id ? { ...item, completed } : item))
+    const completed = !isTaskCompleted(task, now)
+    const lastCompletedAt = task.period === '完了から' ? (completed ? new Date().toISOString() : '') : task.lastCompletedAt || ''
+    setTasks((current) => current.map((item) => item.id === id ? { ...item, completed, lastCompletedAt } : item))
     try {
-      await saveTaskPeriod(task, completed ? 1 : 0, completed)
+      await saveTaskPeriod(task, completed ? 1 : 0, completed, lastCompletedAt)
     } catch (error) {
       showSyncError(error)
     }
@@ -963,11 +1024,12 @@ function App() {
   async function incrementTask(id) {
     const task = tasks.find((item) => item.id === id)
     if (!task) return
-    const progress = Math.min(task.progress + 1, task.target)
+    const progress = Math.min(getTaskProgress(task, now) + 1, task.target)
     const completed = progress >= task.target
-    setTasks((current) => current.map((item) => item.id === id ? { ...item, progress, completed } : item))
+    const lastCompletedAt = task.period === '完了から' ? (completed ? new Date().toISOString() : '') : task.lastCompletedAt || ''
+    setTasks((current) => current.map((item) => item.id === id ? { ...item, progress, completed, lastCompletedAt } : item))
     try {
-      await saveTaskPeriod(task, progress, completed)
+      await saveTaskPeriod(task, progress, completed, lastCompletedAt)
     } catch (error) {
       showSyncError(error)
     }
@@ -976,11 +1038,12 @@ function App() {
   async function decrementTask(id) {
     const task = tasks.find((item) => item.id === id)
     if (!task) return
-    const progress = Math.max(task.progress - 1, 0)
+    const progress = Math.max(getTaskProgress(task, now) - 1, 0)
     const completed = progress >= task.target
-    setTasks((current) => current.map((item) => item.id === id ? { ...item, progress, completed } : item))
+    const lastCompletedAt = task.period === '完了から' ? '' : task.lastCompletedAt || ''
+    setTasks((current) => current.map((item) => item.id === id ? { ...item, progress, completed, lastCompletedAt } : item))
     try {
-      await saveTaskPeriod(task, progress, completed)
+      await saveTaskPeriod(task, progress, completed, lastCompletedAt)
     } catch (error) {
       showSyncError(error)
     }
@@ -1129,6 +1192,8 @@ function App() {
     const visual = getGameVisual(gameName)
     const stockCapacity = Math.max(Number(taskForm.stockCapacity) || 1, 1)
     const normalizedPeriod = taskForm.type === 'stock' ? '毎日' : taskForm.period
+    const repeatDays = Math.max(Number(taskForm.repeatDays) || 3, 1)
+    const lastCompletedAt = normalizedPeriod === '完了から' ? taskForm.lastCompletedAt || '' : ''
     const limitedDays = Math.max(Number(taskForm.limitedDays) || 0, 0)
     const limitedHours = Math.min(Math.max(Number(taskForm.limitedHours) || 0, 0), 23)
     const limitedDurationHours = limitedDays * 24 + limitedHours
@@ -1140,7 +1205,7 @@ function App() {
     const limitedEndAt = limitedStartAt ? new Date(limitedStartAt.getTime() + limitedDurationHours * 3600000) : null
     const normalizedStartDate = limitedStartAt ? toDateInputValue(limitedStartAt) : taskForm.startDate
     const normalizedEndDate = limitedEndAt ? toDateInputValue(limitedEndAt) : taskForm.endDate
-    const normalized = { ...taskForm, game: gameName, period: normalizedPeriod, active: taskForm.active !== false, priority: Number(taskForm.priority), minutes: taskForm.minutes === '' ? '' : Math.max(Number(taskForm.minutes) || 1, 1), startDate: normalizedStartDate, endDate: normalizedEndDate, startAt: limitedStartAt?.toISOString() || taskForm.startAt || '', endAt: limitedEndAt?.toISOString() || taskForm.endAt || '', limitedDays, limitedHours, dueDays: getDueDaysForPeriod(normalizedPeriod, normalizedStartDate, normalizedEndDate, limitedEndAt?.toISOString() || taskForm.endAt || ''), target: Math.max(Number(taskForm.target) || 1, 1), stockIntervalHours: Math.max(Number(taskForm.stockIntervalHours) || 24, 1), stockCapacity, stockAmount: Math.min(Math.max(Number(taskForm.stockAmount) || 0, 0), stockCapacity), stockUpdatedAt: taskForm.stockUpdatedAt || new Date().toISOString(), icon: visual.icon, tone: visual.tone }
+    const normalized = { ...taskForm, game: gameName, period: normalizedPeriod, active: taskForm.active !== false, priority: Number(taskForm.priority), minutes: taskForm.minutes === '' ? '' : Math.max(Number(taskForm.minutes) || 1, 1), startDate: normalizedStartDate, endDate: normalizedEndDate, startAt: limitedStartAt?.toISOString() || taskForm.startAt || '', endAt: limitedEndAt?.toISOString() || taskForm.endAt || '', limitedDays, limitedHours, repeatDays, lastCompletedAt, dueDays: getDueDaysForPeriod(normalizedPeriod, normalizedStartDate, normalizedEndDate, limitedEndAt?.toISOString() || taskForm.endAt || '', repeatDays, lastCompletedAt), target: Math.max(Number(taskForm.target) || 1, 1), stockIntervalHours: Math.max(Number(taskForm.stockIntervalHours) || 24, 1), stockCapacity, stockAmount: Math.min(Math.max(Number(taskForm.stockAmount) || 0, 0), stockCapacity), stockUpdatedAt: taskForm.stockUpdatedAt || new Date().toISOString(), icon: visual.icon, tone: visual.tone }
     try {
       if (isCloudMode) {
         let gameRecord = gameRecords.find((game) => game.name === gameName)
@@ -1164,6 +1229,8 @@ function App() {
           end_date: normalized.endDate || null,
           start_at: normalized.startAt || null,
           end_at: normalized.endAt || null,
+          repeat_days: normalized.repeatDays,
+          last_completed_at: normalized.lastCompletedAt || null,
           active: normalized.active,
         }
         if (normalized.type === 'stock') Object.assign(dbTask, { stock_interval_hours: normalized.stockIntervalHours, stock_capacity: normalized.stockCapacity, stock_amount: normalized.stockAmount, stock_updated_at: normalized.stockUpdatedAt })
@@ -1345,7 +1412,7 @@ function App() {
               {routineTasks.length > 0 ? routineTasks.map((task) => <TaskRow key={task.id} task={task} onToggle={toggleTask} onIncrement={incrementTask} onDecrement={decrementTask} onCollect={collectStock} onEdit={openEditForm} now={now} />) : <div className="empty-state"><span>{longTermLimitedTasks.length > 0 || waitingStockTasks.length > 0 ? '🗂️' : '🎉'}</span><strong>{longTermLimitedTasks.length > 0 || waitingStockTasks.length > 0 ? '表示対象のタスクはありません' : '今日のタスクは完了です'}</strong><p>{longTermLimitedTasks.length > 0 && `長期の期間限定は下にまとめています（${longTermLimitedTasks.length}件）。`}{waitingStockTasks.length > 0 && ' 蓄積型は1個以上たまると表示されます。'}{longTermLimitedTasks.length === 0 && waitingStockTasks.length === 0 && 'おつかれさま。完了済みから記録を確認できます。'}</p></div>}
             </div>
             {longTermLimitedTasks.length > 0 && <details className="completed-details long-term-details"><summary><span>長期の期間限定</span><strong>{longTermLimitedTasks.length}件</strong><small>期限が1週間以上先</small></summary><div className="completed-list">{longTermLimitedTasks.map((task) => <TaskRow key={task.id} task={task} onToggle={toggleTask} onIncrement={incrementTask} onDecrement={decrementTask} onCollect={collectStock} onEdit={openEditForm} now={now} />)}</div></details>}
-            {doneCount > 0 && <details className="completed-details"><summary><span>完了したタスク</span><strong>{doneCount}件</strong><small>記録を確認できます</small></summary><div className="completed-list">{sortTasks(tasks.filter((task) => isTaskActive(task) && (task.completed || (task.type === 'count' && task.progress >= task.target)))).map((task) => <TaskRow key={task.id} task={task} onToggle={toggleTask} onIncrement={incrementTask} onDecrement={decrementTask} onCollect={collectStock} onEdit={openEditForm} now={now} />)}</div></details>}
+            {doneCount > 0 && <details className="completed-details"><summary><span>完了したタスク</span><strong>{doneCount}件</strong><small>記録を確認できます</small></summary><div className="completed-list">{sortTasks(tasks.filter((task) => isTaskActive(task) && isTaskCompleted(task, now)), now).map((task) => <TaskRow key={task.id} task={task} onToggle={toggleTask} onIncrement={incrementTask} onDecrement={decrementTask} onCollect={collectStock} onEdit={openEditForm} now={now} />)}</div></details>}
           </section>
 
           <aside className="side-column">
