@@ -70,17 +70,20 @@ function getDefaultResourceUrl(game) {
   return defaultResourceUrls[game] || ''
 }
 
+function getWeekStartDate(date = new Date()) {
+  const daysSinceMonday = (date.getDay() + 6) % 7
+  const weekStart = new Date(date)
+  weekStart.setDate(date.getDate() - daysSinceMonday)
+  return weekStart
+}
+
 function getPeriodKey(task, date = new Date()) {
   const period = task.period
   const startDate = task.startDate || task.start_date || ''
   const endDate = task.endDate || task.end_date || ''
   const today = toDateInputValue(date)
   if (period === '毎日') return `daily:${today}`
-  if (period === '毎週') {
-    const weekStart = new Date(date)
-    weekStart.setDate(date.getDate() - date.getDay())
-    return `weekly:${toDateInputValue(weekStart)}`
-  }
+  if (period === '毎週') return `weekly:${toDateInputValue(getWeekStartDate(date))}`
   if (period === '2週間ごと') {
     const anchor = startDate ? dateFromInput(startDate) : date
     const elapsed = Math.max(daysBetween(anchor, date), 0)
@@ -90,6 +93,16 @@ function getPeriodKey(task, date = new Date()) {
   }
   if (period === '毎月') return `monthly:${today.slice(0, 7)}`
   return `limited:${task.startAt || task.start_at || startDate}:${task.endAt || task.end_at || endDate}`
+}
+
+function getPeriodLookupKeys(task, date = new Date()) {
+  const currentKey = getPeriodKey(task, date)
+  if (task.period !== '毎週' || date.getDay() !== 0) return [currentKey]
+
+  // 週の起点を日曜から月曜へ変更した直後の日曜だけ、旧形式の履歴を引き継ぐ。
+  const legacyWeekStart = new Date(date)
+  legacyWeekStart.setDate(date.getDate() - 7)
+  return [currentKey, `weekly:${toDateInputValue(legacyWeekStart)}`]
 }
 
 function getCurrentStock(task, now = new Date()) {
@@ -278,7 +291,7 @@ function getLimitedDurationValues(endAt, endDate = '', now = new Date()) {
 function getDueDaysForPeriod(period, startDate, endDate, endAt) {
   const today = new Date()
   if (period === '毎日') return 0
-  if (period === '毎週') return (7 - today.getDay()) % 7
+  if (period === '毎週') return (7 - ((today.getDay() + 6) % 7)) % 7
   if (period === '2週間ごと') {
     const anchor = startDate ? dateFromInput(startDate) : today
     const elapsed = daysBetween(anchor, today)
@@ -878,13 +891,14 @@ function App() {
     if (periodError) throw periodError
     const gameMap = new Map(gameRows.map((game) => [game.id, game.name]))
     const periodMap = new Map(periodRows.map((period) => [`${period.task_id}:${period.period_key}`, period]))
+    const getTaskPeriod = (task) => getPeriodLookupKeys({ period: task.period, startDate: task.start_date, endDate: task.end_date }, new Date()).map((key) => periodMap.get(`${task.id}:${key}`)).find(Boolean)
     gameRows.sort((a, b) => {
       const aOrder = a.sort_order == null ? Number.MAX_SAFE_INTEGER : Number(a.sort_order)
       const bOrder = b.sort_order == null ? Number.MAX_SAFE_INTEGER : Number(b.sort_order)
       return aOrder - bOrder || String(a.created_at || '').localeCompare(String(b.created_at || ''))
     })
     setGameRecords(gameRows.map((game) => ({ id: game.id, name: game.name, active: game.active })))
-    setTasks(taskRows.map((task) => mapDatabaseTask(task, gameMap.get(task.game_id) || '未分類', periodMap.get(`${task.id}:${getPeriodKey({ period: task.period, startDate: task.start_date, endDate: task.end_date })}`))))
+    setTasks(taskRows.map((task) => mapDatabaseTask(task, gameMap.get(task.game_id) || '未分類', getTaskPeriod(task))))
     const resourceResult = await supabase.from('resources').select('*').eq('user_id', userId).order('created_at')
     if (resourceResult.error) {
       if (resourceResult.error.code === 'PGRST205' || resourceResult.error.code === '42P01') {
