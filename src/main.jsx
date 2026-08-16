@@ -877,10 +877,7 @@ function App() {
     const { data: periodRows, error: periodError } = await supabase.from('task_periods').select('*').eq('user_id', userId)
     if (periodError) throw periodError
     const gameMap = new Map(gameRows.map((game) => [game.id, game.name]))
-    const periodMap = new Map(periodRows.map((period) => {
-      const task = taskRows.find((item) => item.id === period.task_id)
-      return [`${period.task_id}:${task ? getPeriodKey({ period: task.period, startDate: task.start_date, endDate: task.end_date }) : period.period_key}`, period]
-    }))
+    const periodMap = new Map(periodRows.map((period) => [`${period.task_id}:${period.period_key}`, period]))
     gameRows.sort((a, b) => {
       const aOrder = a.sort_order == null ? Number.MAX_SAFE_INTEGER : Number(a.sort_order)
       const bOrder = b.sort_order == null ? Number.MAX_SAFE_INTEGER : Number(b.sort_order)
