@@ -947,7 +947,7 @@ function App() {
     if (periodError) throw periodError
     const gameMap = new Map(gameRows.map((game) => [game.id, game.name]))
     const periodMap = new Map(periodRows.map((period) => [`${period.task_id}:${period.period_key}`, period]))
-    const getTaskPeriod = (task) => getPeriodLookupKeys({ period: task.period, startDate: task.start_date, endDate: task.end_date }, new Date()).map((key) => periodMap.get(`${task.id}:${key}`)).find(Boolean)
+    const getTaskPeriod = (task) => getPeriodLookupKeys({ period: task.period, startDate: task.start_date, endDate: task.end_date, startAt: task.start_at, endAt: task.end_at }, new Date()).map((key) => periodMap.get(`${task.id}:${key}`)).find(Boolean)
     gameRows.sort((a, b) => {
       const aOrder = a.sort_order == null ? Number.MAX_SAFE_INTEGER : Number(a.sort_order)
       const bOrder = b.sort_order == null ? Number.MAX_SAFE_INTEGER : Number(b.sort_order)
