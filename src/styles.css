@@ -867,9 +867,36 @@ h1 { margin-bottom: 8px; font-size: clamp(28px, 4vw, 38px); letter-spacing: -.05
   background: #fbfcfe;
 }
 
+/* モバイル幅でのみ使う切り替えボタン(ゲームタスク/筋トレ)。2026-09-07実機フィードバックで追加。
+   色・境界線・activeの見た目は既存の.filter-chipをそのまま流用し(className="filter-chip
+   overview-mobile-tab")、ここではレイアウトの差分(横幅・余白・文字サイズ)だけ上書きする
+   （2026-09-07Codexレビュー指摘: 独自に色・角丸を再定義すると.filter-chipと重複するため統一した）。
+   PC幅は2カード横並びのままで十分見えるため、ここでは常に非表示にしておく。 */
+.overview-mobile-tabs {
+  display: none;
+}
+
+.overview-mobile-tab {
+  flex: 1;
+  text-align: center;
+  padding: 10px 13px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
 @media (max-width: 820px) {
   .overview-apps {
     grid-template-columns: 1fr;
+  }
+
+  .overview-mobile-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+
+  .overview-mobile-hidden {
+    display: none;
   }
 }
 

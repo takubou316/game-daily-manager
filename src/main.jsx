@@ -472,7 +472,7 @@ function TaskRow({ task, onToggle, onIncrement, onDecrement, onCollect, onEdit, 
 // 編集モーダルはゲームタスク管理画面側にしか描画されないため、TaskRowへはonEditを渡さない
 // （2026-09-07Codexレビュー指摘: onEditを渡すと押しても何も起きないボタンになってしまうため、
 // TaskRow側もonEdit未指定なら編集ボタン自体を出さないよう修正した）。
-function OverviewScreen({ todayTasks, now, isCloudMode, trainingStatus, onToggle, onIncrement, onDecrement, onCollect, onOpenGameTasks, onSignOut }) {
+function OverviewScreen({ todayTasks, now, isCloudMode, trainingStatus, mobileTab, onMobileTabChange, onToggle, onIncrement, onDecrement, onCollect, onOpenGameTasks, onSignOut }) {
   const pendingTodayCount = todayTasks.filter((task) => !isTaskCompleted(task, now)).length
   return (
     <div className="app-shell overview-shell">
@@ -499,8 +499,22 @@ function OverviewScreen({ todayTasks, now, isCloudMode, trainingStatus, onToggle
           </div>
         </section>
 
+        {/* モバイル幅でのみ表示する切り替えボタン。PC幅では2カード横並びのままなので不要
+            (CSSの@media (max-width: 820px)で表示を切り替える)。2026-09-07実機フィードバック:
+            モバイルでゲームタスクの件数が多いと筋トレカードまで大きくスクロールする必要があった
+            ため追加した。見た目はタブだが、tabpanel/aria-controlsの相互参照や矢印キー操作までは
+            作り込まず、素直なトグルボタン群(role="group"、aria-pressed)として実装している
+            （2026-09-07Codexレビュー指摘: role="tablist"/"tab"を名乗るなら正式なARIAタブパターン
+            一式が要る。中途半端に付けるとスクリーンリーダーに誤ったセマンティクスを伝えるため、
+            既存の.filter-chipと同じ「見た目はタブ状、実装は素朴なボタン」という誠実な方に倒した）。
+            スタイルも既存の.filter-chipをそのまま流用し、独自の色・角丸を重複定義していない。 */}
+        <div className="overview-mobile-tabs" role="group" aria-label="全体管理画面の表示切り替え">
+          <button type="button" aria-pressed={mobileTab === 'games'} className={`filter-chip overview-mobile-tab${mobileTab === 'games' ? ' active' : ''}`} onClick={() => onMobileTabChange('games')}>ゲームタスク</button>
+          <button type="button" aria-pressed={mobileTab === 'training'} className={`filter-chip overview-mobile-tab${mobileTab === 'training' ? ' active' : ''}`} onClick={() => onMobileTabChange('training')}>筋トレ</button>
+        </div>
+
         <div className="overview-apps">
-          <section className="overview-app-card">
+          <section className={mobileTab === 'training' ? 'overview-app-card overview-mobile-hidden' : 'overview-app-card'} aria-hidden={mobileTab === 'training'}>
             <div className="section-heading">
               <div><h2>ゲームタスク <span>{todayTasks.length}</span></h2><p>今日期限のものだけを表示中</p></div>
               <button className="add-task-button" onClick={onOpenGameTasks}>すべて見る <span>→</span></button>
@@ -512,7 +526,7 @@ function OverviewScreen({ todayTasks, now, isCloudMode, trainingStatus, onToggle
             </div>
           </section>
 
-          <section className="overview-app-card overview-training-card">
+          <section className={mobileTab === 'games' ? 'overview-app-card overview-training-card overview-mobile-hidden' : 'overview-app-card overview-training-card'} aria-hidden={mobileTab === 'games'}>
             <div className="section-heading">
               <div><h2>筋トレ</h2><p>training-menu</p></div>
               <a className="add-task-button" href={TRAINING_MENU_URL} target="_blank" rel="noopener noreferrer">開く <span>→</span></a>
@@ -889,6 +903,7 @@ function App() {
   const [now, setNow] = useState(() => new Date())
   const [view, setView] = useState('overview') // 'overview'(全体管理画面) | 'gameTasks'(既存のゲームタスク管理ダッシュボード)
   const [trainingStatus, setTrainingStatus] = useState('unknown') // 'unknown' | 'done' | 'not_done'（training-menuのtraining_sessionsテーブルを見て判定、下のuseEffect参照）
+  const [overviewMobileTab, setOverviewMobileTab] = useState('games') // 'games' | 'training'（モバイル幅の全体管理画面でのみ使うタブ切り替え。2026-09-07実機フィードバック: ゲームタスクの件数が多いと筋トレまで大きくスクロールする必要があったため追加）
   const isCloudMode = isSupabaseConfigured && Boolean(session)
   const games = ['すべて', ...gameRecords.filter((game) => game.active).map((game) => game.name)]
   const availableGameNames = gameRecords.filter((game) => game.active).map((game) => game.name)
@@ -1500,6 +1515,8 @@ function App() {
         now={now}
         isCloudMode={isCloudMode}
         trainingStatus={trainingStatus}
+        mobileTab={overviewMobileTab}
+        onMobileTabChange={setOverviewMobileTab}
         onToggle={toggleTask}
         onIncrement={incrementTask}
         onDecrement={decrementTask}
