@@ -1,8 +1,13 @@
 # HANDOFF
 
-更新主体: Codex
-更新日時: 2026-08-20
+更新主体: Claude
+更新日時: 2026-09-06
 状態: 初期版公開確認済み。GitHub Pages、Google OAuth、Supabase保存、スマホ表示まで確認済み。アプリアイコン、蓄積型タスク、週次周期名変更、HoYoLAB確認先URL付きのスタミナ・リソース管理、ゲームフィルターの長押し並び替え、期間限定タスクの残り日数・時間入力、「完了から○日後」タスクを実装済み。期間限定タスクの完了状態が日付変更後に復活する不具合を修正し、公開反映待ち。
+
+**2026-09-06〜: `training-menu`と接続する全体管理画面の追加作業を開始。** 設計フェーズ（フェーズ0）完了、
+[CLAUDE.md](CLAUDE.md)と[INTEGRATION_ROADMAP.md](INTEGRATION_ROADMAP.md)を作成済み。次はフェーズ1
+（Supabaseスキーマ追加）へ進む。この統合作業は、Codexが近く使えなくなる見込みのため全面的にClaude管轄で
+進める（従来の「ゲームタスク管理部分はCodex管轄」からの変更）。
 
 ## 現在の状態
 
@@ -57,6 +62,10 @@
 - Supabaseの無料枠、プロジェクト自動停止、バックアップ制限を確認済み。
 
 ## 次の作業
+
+**最優先**: [INTEGRATION_ROADMAP.md](INTEGRATION_ROADMAP.md)のフェーズ1（Supabaseスキーマ追加）に着手する。
+[supabase/migrations/20260906_add_training_integration.sql](supabase/migrations/20260906_add_training_integration.sql)
+をSupabase SQL Editorで実行し、RLSが正しく効くか確認する。以下は統合作業着手前からの既存の次の作業。
 
 1. GitHub Actionsの公開完了後、`https://takubou316.github.io/game-daily-manager/`を開いて更新を確認する。
 2. 期間限定タスクを追加し、残り日数・時間の入力、カードの残り時間表示、再読み込み後の保存を確認する。
