@@ -427,7 +427,7 @@ function TaskRow({ task, onToggle, onIncrement, onDecrement, onCollect, onEdit, 
           <div className="count-number"><strong>{getCurrentStock(task, now)}</strong><span> / {task.stockCapacity}個</span></div>
           <div className="progress-track"><span style={{ width: `${Math.min(getCurrentStock(task, now) / task.stockCapacity * 100, 100)}%` }} /></div>
           <div className="count-actions">
-            <button className="edit-button compact-edit" onClick={() => onEdit(task)} aria-label={`${task.title}を編集`}>編集</button>
+            {onEdit && <button className="edit-button compact-edit" onClick={() => onEdit(task)} aria-label={`${task.title}を編集`}>編集</button>}
             <button className="add-button" onClick={() => onCollect(task.id)} disabled={getCurrentStock(task, now) === 0}>受け取る</button>
           </div>
         </div>
@@ -436,14 +436,14 @@ function TaskRow({ task, onToggle, onIncrement, onDecrement, onCollect, onEdit, 
           <div className="count-number"><strong>{progress}</strong><span> / {task.target}回</span></div>
           <div className="progress-track"><span style={{ width: `${Math.min(progress / task.target * 100, 100)}%` }} /></div>
           <div className="count-actions">
-            <button className="edit-button compact-edit" onClick={() => onEdit(task)} aria-label={`${task.title}を編集`}>編集</button>
+            {onEdit && <button className="edit-button compact-edit" onClick={() => onEdit(task)} aria-label={`${task.title}を編集`}>編集</button>}
             <button className="step-button" onClick={() => onDecrement(task.id)} disabled={progress === 0} aria-label="1回減らす">−</button>
             <button className={`add-button ${isDone ? 'done-button' : ''}`} onClick={() => onIncrement(task.id)} disabled={isDone}>{isDone ? '達成済み' : '+1 回'}</button>
           </div>
         </div>
       ) : (
         <div className="single-actions">
-          <button className="edit-button" onClick={() => onEdit(task)} aria-label={`${task.title}を編集`}>編集</button>
+          {onEdit && <button className="edit-button" onClick={() => onEdit(task)} aria-label={`${task.title}を編集`}>編集</button>}
           <button className={`complete-button ${isDone ? 'checked' : ''}`} onClick={() => onToggle(task.id)} aria-label={`${task.title}を${isDone ? '未完了に戻す' : '完了にする'}`}>
             <span className="check-icon">{isDone ? '✓' : ''}</span>
             <span>{isDone ? '完了' : '完了にする'}</span>
@@ -451,6 +451,70 @@ function TaskRow({ task, onToggle, onIncrement, onDecrement, onCollect, onEdit, 
         </div>
       )}
     </article>
+  )
+}
+
+// 全体管理画面(トップ)。ゲームタスク管理(既存ダッシュボード)・筋トレ(training-menu、別リポジトリ)を
+// 横断して「今日のタスク」を一括確認するための新しい入口。今日期限のゲームタスクをその場で操作でき、
+// 「すべて見る」から既存のゲームタスク管理ダッシュボードへ1階層降りられる。筋トレ欄はフェーズ5で
+// training_sessionsテーブルと接続するまでプレースホルダー表示。詳細はCLAUDE.mdの「アーキテクチャ：3層構成」参照。
+// 編集モーダルはゲームタスク管理画面側にしか描画されないため、TaskRowへはonEditを渡さない
+// （2026-09-07Codexレビュー指摘: onEditを渡すと押しても何も起きないボタンになってしまうため、
+// TaskRow側もonEdit未指定なら編集ボタン自体を出さないよう修正した）。
+function OverviewScreen({ todayTasks, now, isCloudMode, onToggle, onIncrement, onDecrement, onCollect, onOpenGameTasks, onSignOut }) {
+  const pendingTodayCount = todayTasks.filter((task) => !isTaskCompleted(task, now)).length
+  return (
+    <div className="app-shell overview-shell">
+      <header className="topbar">
+        <div className="brand" aria-label="全体管理画面">
+          <span className="brand-mark">✓</span>
+          <span><strong>全体管理</strong><small>今日やることを、まとめて。</small></span>
+        </div>
+        <nav className="top-actions" aria-label="アプリメニュー">
+          <button className="avatar" aria-label="ログアウト" title={isCloudMode ? 'ログアウト' : 'デモモード'} onClick={onSignOut}>T</button>
+        </nav>
+      </header>
+
+      <main className="main-content">
+        <section className="welcome-row">
+          <div>
+            <p className="eyebrow">TODAY'S ROUTINE</p>
+            <h1>今日のタスク</h1>
+            <p className="date-text">{formatDate()}　<span>すべてのアプリの「今日やること」をここに集約</span></p>
+          </div>
+          <div className="completion-summary">
+            <span>今日の残り</span>
+            <strong>{pendingTodayCount}<small> 件</small></strong>
+          </div>
+        </section>
+
+        <div className="overview-apps">
+          <section className="overview-app-card">
+            <div className="section-heading">
+              <div><h2>ゲームタスク <span>{todayTasks.length}</span></h2><p>今日期限のものだけを表示中</p></div>
+              <button className="add-task-button" onClick={onOpenGameTasks}>すべて見る <span>→</span></button>
+            </div>
+            <div className="task-list">
+              {todayTasks.length > 0
+                ? todayTasks.map((task) => <TaskRow key={task.id} task={task} onToggle={onToggle} onIncrement={onIncrement} onDecrement={onDecrement} onCollect={onCollect} now={now} />)
+                : <div className="empty-state"><span>🎉</span><strong>今日期限のタスクはありません</strong><p>「すべて見る」から他の未完了タスクも確認できます。</p></div>}
+            </div>
+          </section>
+
+          <section className="overview-app-card overview-training-card">
+            <div className="section-heading">
+              <div><h2>筋トレ</h2><p>準備中</p></div>
+            </div>
+            <div className="empty-state">
+              <span>🏋️</span>
+              <strong>筋トレとの連携は準備中です</strong>
+              <p>近日、今日のトレーニング状況をここに表示します。</p>
+            </div>
+          </section>
+        </div>
+      </main>
+      <footer className="footer"><span>全体管理</span><span>{isCloudMode ? 'Supabaseに接続中' : '現在は試作データで動作しています'}</span></footer>
+    </div>
   )
 }
 
@@ -797,6 +861,7 @@ function App() {
   const [dataLoading, setDataLoading] = useState(isSupabaseConfigured)
   const [syncError, setSyncError] = useState('')
   const [now, setNow] = useState(() => new Date())
+  const [view, setView] = useState('overview') // 'overview'(全体管理画面) | 'gameTasks'(既存のゲームタスク管理ダッシュボード)
   const isCloudMode = isSupabaseConfigured && Boolean(session)
   const games = ['すべて', ...gameRecords.filter((game) => game.active).map((game) => game.name)]
   const availableGameNames = gameRecords.filter((game) => game.active).map((game) => game.name)
@@ -807,6 +872,10 @@ function App() {
   const routineTasks = activeTasks.filter((task) => !isLongTermLimitedTask(task, now))
   const waitingStockTasks = visibleTasks.filter((task) => task.type === 'stock' && !isTaskCompleted(task, now) && getCurrentStock(task, now) < 1)
   const activeTasksAll = tasks.filter((task) => isTaskActive(task) && activeGameSet.has(task.game))
+  // 完了済みも含めて「今日期限のもの」をそのまま見せる(全体管理画面は今日の全体像を確認する場所のため)。
+  // 蓄積型だけは既存ダッシュボードと同じくisPendingTaskVisibleで、まだ1個も貯まっていないものを除外する
+  // （2026-09-07Codexレビュー指摘: 既存のactiveTasksが掛けている条件をtodayTasksが継承していなかった）。
+  const todayTasks = useMemo(() => sortTasks(activeTasksAll.filter((task) => task.dueDays === 0 && isPendingTaskVisible(task, now)), now), [activeTasksAll, now])
   const doneCount = activeTasksAll.filter((task) => isTaskCompleted(task, now)).length
   const totalCount = activeTasksAll.length
   const weeklyTasks = activeTasksAll.filter((task) => task.period === '毎週')
@@ -1006,6 +1075,7 @@ function App() {
 
   async function signOut() {
     if (isCloudMode) await supabase.auth.signOut()
+    setView('overview') // 次回ログイン時に必ず全体管理画面から始まるようにする(2026-09-07Codexレビュー指摘)
   }
 
   async function toggleTask(id) {
@@ -1357,13 +1427,29 @@ function App() {
   if (isSupabaseConfigured && !session) return <AuthScreen />
   if (isSupabaseConfigured && dataLoading) return <main className="auth-shell"><section className="auth-card loading-card"><span className="brand-mark">✓</span><h1>データを読み込んでいます</h1><p>ゲーム日課を準備中です。</p></section></main>
 
+  if (view === 'overview') {
+    return (
+      <OverviewScreen
+        todayTasks={todayTasks}
+        now={now}
+        isCloudMode={isCloudMode}
+        onToggle={toggleTask}
+        onIncrement={incrementTask}
+        onDecrement={decrementTask}
+        onCollect={collectStock}
+        onOpenGameTasks={() => setView('gameTasks')}
+        onSignOut={signOut}
+      />
+    )
+  }
+
   return (
     <div className="app-shell">
       <header className="topbar">
-        <a className="brand" href="/" aria-label="ゲーム日課トップへ">
-          <span className="brand-mark">✓</span>
-          <span><strong>ゲーム日課</strong><small>今日やることを、迷わず。</small></span>
-        </a>
+        <button type="button" className="brand brand-back" onClick={() => setView('overview')} aria-label="全体管理画面へ戻る">
+          <span className="brand-mark">←</span>
+          <span><strong>ゲームタスク管理</strong><small>全体管理画面へ戻る</small></span>
+        </button>
         <nav className="top-actions" aria-label="アプリメニュー">
           <button className="icon-button" aria-label="タスクを一括管理" title="タスクを一括管理" onClick={() => { setTaskManagerPeriod('すべて'); setIsTaskManagerOpen(true) }}>☷</button>
           <button className="icon-button" aria-label="スタミナ・リソース管理" title="スタミナ・リソース管理" onClick={openResourceManager}>⚡</button>

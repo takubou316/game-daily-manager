@@ -833,6 +833,46 @@ h1 { margin-bottom: 8px; font-size: clamp(28px, 4vw, 38px); letter-spacing: -.05
   padding: 0;
 }
 
+/* 全体管理画面(OverviewScreen)。2026-09-07、training-menu統合の一環で追加。
+   既存の.side-card相当のカードスタイルを、ゲームタスク・筋トレの2枚に流用している。 */
+.brand-back {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  text-align: left;
+}
+
+.overview-apps {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  align-items: start;
+}
+
+.overview-app-card {
+  background: white;
+  border: 1px solid #e9ebf2;
+  border-radius: 14px;
+  padding: 24px;
+  box-shadow: 0 3px 14px rgba(25, 33, 54, .025);
+}
+
+.overview-app-card .task-list {
+  margin-top: 4px;
+}
+
+.overview-training-card .empty-state {
+  border-color: #e9ebf2;
+  background: #fbfcfe;
+}
+
+@media (max-width: 820px) {
+  .overview-apps {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 560px) {
   .auth-card {
     padding: 25px 19px;
