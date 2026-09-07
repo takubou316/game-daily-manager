@@ -22,7 +22,13 @@
   Codexレビュー＋Claudeの実地テストで2件のバグ（キュー消失競合、ロック中エントリの送信漏れ）を
   発見・修正。実機でのオフライン→オンライン復帰確認はフェーズ6に持ち越し。詳細は
   [INTEGRATION_ROADMAP.md](INTEGRATION_ROADMAP.md)のフェーズ4、`training-menu/HANDOFF.md`参照
-- 次はフェーズ5（全体管理画面と筋トレを接続）
+- フェーズ5（全体管理画面と筋トレを接続）完了。`OverviewScreen`の筋トレ欄をtraining_sessionsの
+  実データ表示に置き換えた（done/not_done/unknownの3状態）。ローカル開発サーバーでのログインには
+  Supabase Auth設定のRedirect URLsに`http://localhost:5173/**`の追加が必要だったことが判明し、
+  ユーザーに追加してもらった上で3状態すべてを実データで確認済み。詳細は
+  [INTEGRATION_ROADMAP.md](INTEGRATION_ROADMAP.md)のフェーズ5、`CLAUDE.md`の「全体管理画面の
+  筋トレ欄」参照
+- 次はフェーズ6（実機総合検証・仕上げ）
 
 ## 現在の状態
 
@@ -78,9 +84,9 @@
 
 ## 次の作業
 
-**最優先**: [INTEGRATION_ROADMAP.md](INTEGRATION_ROADMAP.md)のフェーズ5（全体管理画面と筋トレを
-接続。`training_sessions`から「今日やったか」を取得し、`OverviewScreen`のプレースホルダーを
-実データに差し替える）に着手する。以下は統合作業着手前からの既存の次の作業。
+**最優先**: [INTEGRATION_ROADMAP.md](INTEGRATION_ROADMAP.md)のフェーズ6（実機総合検証・仕上げ）に
+着手する。PC・スマホ両方で全体管理画面→各アプリの行き来を一通り確認し、`HANDOFF.md`を更新して
+統合作業を完了させる。以下は統合作業着手前からの既存の次の作業。
 
 1. GitHub Actionsの公開完了後、`https://takubou316.github.io/game-daily-manager/`を開いて更新を確認する。
 2. 期間限定タスクを追加し、残り日数・時間の入力、カードの残り時間表示、再読み込み後の保存を確認する。

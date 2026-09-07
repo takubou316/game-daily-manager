@@ -355,6 +355,15 @@ function formatDate() {
   return new Intl.DateTimeFormat('ja-JP', { month: 'numeric', day: 'numeric', weekday: 'short' }).format(new Date())
 }
 
+// training-menu側のlocalDateKey相当(端末のローカル日付をYYYY-MM-DD形式で)。training_sessions.session_dateと
+// 同じ形式で比較するために使う(フェーズ5、全体管理画面の筋トレ「今日やったか」判定)。
+function todayDateKey(date = new Date()) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
+// training-menu(別リポジトリ、別オリジン)の公開URL。全体管理画面からの遷移リンクに使う。
+const TRAINING_MENU_URL = 'https://takubou316.github.io/training-menu/'
+
 function urgencyText(task, now = new Date()) {
   if (task.type === 'stock') {
     const currentStock = getCurrentStock(task, now)
@@ -456,12 +465,14 @@ function TaskRow({ task, onToggle, onIncrement, onDecrement, onCollect, onEdit, 
 
 // 全体管理画面(トップ)。ゲームタスク管理(既存ダッシュボード)・筋トレ(training-menu、別リポジトリ)を
 // 横断して「今日のタスク」を一括確認するための新しい入口。今日期限のゲームタスクをその場で操作でき、
-// 「すべて見る」から既存のゲームタスク管理ダッシュボードへ1階層降りられる。筋トレ欄はフェーズ5で
-// training_sessionsテーブルと接続するまでプレースホルダー表示。詳細はCLAUDE.mdの「アーキテクチャ：3層構成」参照。
+// 「すべて見る」から既存のゲームタスク管理ダッシュボードへ1階層降りられる。筋トレ欄は
+// training_sessionsテーブルを見た「今日やったか」の実施有無のみ表示し、操作はtraining-menu側で行う
+// （training-menuとは別オリジンで認証を共有しないため、リンクで移動した先で改めてログインが必要な
+// 場合がある。詳細はCLAUDE.mdの「アーキテクチャ：3層構成」「認証は別オリジンで共有しない」参照）。
 // 編集モーダルはゲームタスク管理画面側にしか描画されないため、TaskRowへはonEditを渡さない
 // （2026-09-07Codexレビュー指摘: onEditを渡すと押しても何も起きないボタンになってしまうため、
 // TaskRow側もonEdit未指定なら編集ボタン自体を出さないよう修正した）。
-function OverviewScreen({ todayTasks, now, isCloudMode, onToggle, onIncrement, onDecrement, onCollect, onOpenGameTasks, onSignOut }) {
+function OverviewScreen({ todayTasks, now, isCloudMode, trainingStatus, onToggle, onIncrement, onDecrement, onCollect, onOpenGameTasks, onSignOut }) {
   const pendingTodayCount = todayTasks.filter((task) => !isTaskCompleted(task, now)).length
   return (
     <div className="app-shell overview-shell">
@@ -503,13 +514,28 @@ function OverviewScreen({ todayTasks, now, isCloudMode, onToggle, onIncrement, o
 
           <section className="overview-app-card overview-training-card">
             <div className="section-heading">
-              <div><h2>筋トレ</h2><p>準備中</p></div>
+              <div><h2>筋トレ</h2><p>training-menu</p></div>
+              <a className="add-task-button" href={TRAINING_MENU_URL} target="_blank" rel="noopener noreferrer">開く <span>→</span></a>
             </div>
-            <div className="empty-state">
-              <span>🏋️</span>
-              <strong>筋トレとの連携は準備中です</strong>
-              <p>近日、今日のトレーニング状況をここに表示します。</p>
-            </div>
+            {trainingStatus === 'done' ? (
+              <div className="empty-state overview-training-done">
+                <span>✅</span>
+                <strong>今日はもう実施済みです</strong>
+                <p>お疲れさまでした。詳しい記録はtraining-menuで確認できます。</p>
+              </div>
+            ) : trainingStatus === 'not_done' ? (
+              <div className="empty-state">
+                <span>🏋️</span>
+                <strong>今日はまだ実施していません</strong>
+                <p>「開く」からtraining-menuへ移動して記録できます。</p>
+              </div>
+            ) : (
+              <div className="empty-state">
+                <span>🔌</span>
+                <strong>今日の実施状況を確認できません</strong>
+                <p>training-menu側でクラウド同期にログインすると、ここに実施状況が表示されます。</p>
+              </div>
+            )}
           </section>
         </div>
       </main>
@@ -862,6 +888,7 @@ function App() {
   const [syncError, setSyncError] = useState('')
   const [now, setNow] = useState(() => new Date())
   const [view, setView] = useState('overview') // 'overview'(全体管理画面) | 'gameTasks'(既存のゲームタスク管理ダッシュボード)
+  const [trainingStatus, setTrainingStatus] = useState('unknown') // 'unknown' | 'done' | 'not_done'（training-menuのtraining_sessionsテーブルを見て判定、下のuseEffect参照）
   const isCloudMode = isSupabaseConfigured && Boolean(session)
   const games = ['すべて', ...gameRecords.filter((game) => game.active).map((game) => game.name)]
   const availableGameNames = gameRecords.filter((game) => game.active).map((game) => game.name)
@@ -898,6 +925,45 @@ function App() {
     const timer = window.setInterval(() => setNow(new Date()), 60000)
     return () => window.clearInterval(timer)
   }, [])
+
+  // 全体管理画面の筋トレ欄(フェーズ5)。training-menu(別リポジトリ、別オリジン)は認証を共有しない
+  // ため、ここではSupabaseの`training_sessions`テーブルを直接見て「今日やったか」を判定する。
+  // 1件も無ければtraining-menu側でまだクラウド同期を使ったことがない可能性が高いため'unknown'
+  // (「未実施」と「クラウド未接続で分からない」を区別する。CLAUDE.mdの「認証は別オリジンで
+  // 共有しない」節・INTEGRATION_ROADMAP.mdのフェーズ5参照)。1分ごとに更新される`now`をそのまま
+  // 依存配列に使うと日付が変わらない間も無駄に再フェッチしてしまうため、日付部分だけを取り出して使う。
+  // `todayDateKey`はtraining-menu側のjs/storage.jsにある`localDateKey`と全く同じロジック
+  // (ブラウザのローカルタイムゾーンでgetFullYear/getMonth/getDateを使う)で、実装を突き合わせて
+  // 一致を確認済み(2026-09-07Codexレビュー指摘への回答)。両アプリを同じ端末・同じタイムゾーンの
+  // ブラウザで使う前提であれば日付がずれることはない。
+  const todayKey = todayDateKey(now)
+  const trainingUserId = session?.user?.id // 依存配列にはsessionオブジェクト全体でなくidだけを使う
+  useEffect(() => {
+    if (!isCloudMode || !trainingUserId) {
+      setTrainingStatus('unknown')
+      return undefined
+    }
+    let cancelled = false
+    supabase
+      .from('training_sessions')
+      .select('session_date')
+      .eq('user_id', trainingUserId)
+      .order('session_date', { ascending: false })
+      .limit(1)
+      .then(({ data, error }) => {
+        if (cancelled) return
+        if (error || !data || data.length === 0) {
+          setTrainingStatus('unknown')
+          return
+        }
+        setTrainingStatus(data[0].session_date === todayKey ? 'done' : 'not_done')
+      })
+      .catch(() => {
+        // ネットワーク例外等。UIは既定の'unknown'表示のままにする(2026-09-07Codexレビュー指摘)。
+        if (!cancelled) setTrainingStatus('unknown')
+      })
+    return () => { cancelled = true }
+  }, [isCloudMode, trainingUserId, todayKey])
 
   function clearGameLongPress() {
     if (gameLongPressRef.current.timer) window.clearTimeout(gameLongPressRef.current.timer)
@@ -1433,6 +1499,7 @@ function App() {
         todayTasks={todayTasks}
         now={now}
         isCloudMode={isCloudMode}
+        trainingStatus={trainingStatus}
         onToggle={toggleTask}
         onIncrement={incrementTask}
         onDecrement={decrementTask}
