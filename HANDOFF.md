@@ -15,7 +15,10 @@
   既存ダッシュボードと切り替える構成にした。Codexレビューで見つかった不具合（編集ボタンが無反応、
   蓄積型の表示条件漏れ、ログアウト時のview残留）を修正済み。詳細は
   [INTEGRATION_ROADMAP.md](INTEGRATION_ROADMAP.md)のフェーズ2参照
-- 次はフェーズ3（training-menuへのログイン選択画面追加）
+- フェーズ3（training-menuへのログイン選択画面追加）完了。別リポジトリ`training-menu`側の作業。
+  実機（ブラウザタブ）でGoogleログイン成功まで確認済み。詳細は
+  [INTEGRATION_ROADMAP.md](INTEGRATION_ROADMAP.md)のフェーズ3、`training-menu/HANDOFF.md`参照
+- 次はフェーズ4（training-menu → Supabase同期の実装、オフラインキュー含む）
 
 ## 現在の状態
 
@@ -71,9 +74,9 @@
 
 ## 次の作業
 
-**最優先**: [INTEGRATION_ROADMAP.md](INTEGRATION_ROADMAP.md)のフェーズ3（training-menuへのログイン
-選択画面追加）に着手する。training-menu（別リポジトリ）側の作業になる。以下は統合作業着手前からの
-既存の次の作業。
+**最優先**: [INTEGRATION_ROADMAP.md](INTEGRATION_ROADMAP.md)のフェーズ4（training-menu → Supabase
+同期の実装、オフラインキュー含む）に着手する。training-menu（別リポジトリ）側の作業になる。以下は
+統合作業着手前からの既存の次の作業。
 
 1. GitHub Actionsの公開完了後、`https://takubou316.github.io/game-daily-manager/`を開いて更新を確認する。
 2. 期間限定タスクを追加し、残り日数・時間の入力、カードの残り時間表示、再読み込み後の保存を確認する。
