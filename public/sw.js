@@ -1,4 +1,4 @@
-const CACHE_NAME = 'game-daily-v0.1.1'
+const CACHE_NAME = 'game-daily-v0.1.2'
 const BASE_PATH = new URL('./', self.registration.scope).pathname
 const APP_SHELL = [BASE_PATH, `${BASE_PATH}index.html`, `${BASE_PATH}manifest.webmanifest`]
 
@@ -20,7 +20,12 @@ self.addEventListener('fetch', (event) => {
   const requestUrl = new URL(event.request.url)
   const isAppDocument = event.request.mode === 'navigate' || requestUrl.pathname === BASE_PATH || requestUrl.pathname === `${BASE_PATH}index.html`
   if (isAppDocument) {
-    event.respondWith(fetch(event.request).then((response) => {
+    // cache: 'no-store'を指定しないと、このfetch自体がブラウザの通常のHTTPキャッシュを
+    // 経由してしまい、Service Worker側は「ネットワークを優先している」つもりでも実際には
+    // 古いレスポンスを受け取り続けることがある(2026-09-07、実機で全体管理画面がSupabase未接続の
+    // 古いビルドのまま表示され続ける不具合が発生し判明。training-menu側で既に踏んでいた
+    // 既知のパターン、feedback_sw_fetch_no_store参照)。
+    event.respondWith(fetch(event.request, { cache: 'no-store' }).then((response) => {
       const copy = response.clone()
       caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy))
       return response
