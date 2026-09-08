@@ -138,7 +138,14 @@ training-menu側の`maybeHandleEntryParams()`が受ける）へ直接遷移で�
   記録・削除して戻ってきてもReactのstateは自動更新されない。`trainingRefreshToken`
   （`focus`/`visibilitychange`イベントでインクリメント）を`trainingStatus`/`trainingShortcuts`/
   `todayCompletedExerciseIds`の3つのuseEffectの依存配列に加えており、全体管理画面のタブへ
-  戻ってきた時点で自動的に再取得される
+  戻ってきた時点で自動的に再取得される。
+  **既知の罠（2026-09-08、実機でのみ発覚）**: `visibilitychange`/`focus`だけでは実機
+  (iPhone Safari)で更新されず、ハードリロードしないと反映されない不具合が報告された。
+  モバイルSafariのタブ切替は必ずしもこれらのイベントを発火させるとは限らず、また「戻る」操作が
+  bfcache（ページをJS実行状態ごと凍結保存し、再訪問時にそのまま復元する仕組み）からの復元だと
+  これらのイベント自体が発火しない。bfcache復元を検知できる`pageshow`イベントを追加し、
+  さらにイベント方式が全滅しても最悪1分以内には追いつくよう、3つのuseEffectの依存配列に
+  （60秒ごとに更新される）`now`も加えてポーリング的な保険を掛けている（二重の対策）。
 - **フォーム保存の失敗時はフォームを閉じない**: `addTrainingShortcut`/`updateTrainingShortcut`/
   `deleteTrainingShortcut`はSupabaseエラー時に`showSyncError(error)`を呼ぶのではなく`throw`する
   規約にしている（`submitTaskForm`と同じ規約）。呼び出し元(`submitShortcutForm`等)がtry/catchで

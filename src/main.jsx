@@ -1054,16 +1054,30 @@ function App() {
   // 再実行させるためのトリガー(2026-09-08、Codexレビュー指摘: training-menu側で記録・削除した
   // 直後は「全体管理画面を開き直すまで」表示が更新されないと分かっていたが、タブ切り替え程度の
   // 操作で自然に更新されるようにした方が体験が良いため追加した)。
+  //
+  // 2026-09-08追記: visibilitychange/focusだけでは実機(iPhone Safari)で更新されず、
+  // ハードリロードしないと反映されない不具合が報告された。原因はモバイルSafariでのタブ切替が
+  // 必ずしもvisibilitychange/focusを発火させるとは限らないこと、また「戻る」操作がbfcache
+  // (ページをJS実行状態ごと凍結保存し、再訪問時にそのまま復元する仕組み)からの復元だと
+  // これらのイベント自体が発火しないことが原因と考えられる。bfcache復元を確実に検知できる
+  // pageshow(event.persisted)を追加し、さらにイベント方式が全滅しても最悪1分以内には
+  // 追いつくよう、下の3つのuseEffectの依存配列に(60秒ごとに更新される)`now`も足して
+  // ポーリング的な保険を掛けた(二重の対策)。
   const [trainingRefreshToken, setTrainingRefreshToken] = useState(0)
   useEffect(() => {
     function handleVisible() {
       if (document.visibilityState === 'visible') setTrainingRefreshToken((t) => t + 1)
     }
+    function handlePageShow() {
+      setTrainingRefreshToken((t) => t + 1)
+    }
     window.addEventListener('focus', handleVisible)
     document.addEventListener('visibilitychange', handleVisible)
+    window.addEventListener('pageshow', handlePageShow)
     return () => {
       window.removeEventListener('focus', handleVisible)
       document.removeEventListener('visibilitychange', handleVisible)
+      window.removeEventListener('pageshow', handlePageShow)
     }
   }, [])
 
@@ -1104,7 +1118,7 @@ function App() {
         if (!cancelled) setTrainingStatus('unknown')
       })
     return () => { cancelled = true }
-  }, [isCloudMode, trainingUserId, todayKey, trainingRefreshToken])
+  }, [isCloudMode, trainingUserId, todayKey, trainingRefreshToken, now])
 
   // 筋トレショートカット機能(2026-09-08〜)。ショートカットの「定義」一覧(training_shortcuts)と、
   // 「今日実施済みの種目id一覧」(training_session_exercisesをexercise_id単位で集約したもの)を
@@ -1129,7 +1143,7 @@ function App() {
       })
       .catch(() => {})
     return () => { cancelled = true }
-  }, [isCloudMode, trainingUserId, trainingRefreshToken])
+  }, [isCloudMode, trainingUserId, trainingRefreshToken, now])
 
   // todayCompletedExerciseIdsは3値: Set(成功、達成済みexercise_idの集合。0件なら空Set) / null
   // (クラウド未接続でない/クエリ失敗で「確認できない」) / (非クラウドモードは常に空Set、
@@ -1162,7 +1176,7 @@ function App() {
         if (!cancelled) setTodayCompletedExerciseIds(null)
       })
     return () => { cancelled = true }
-  }, [isCloudMode, trainingUserId, todayKey, trainingRefreshToken])
+  }, [isCloudMode, trainingUserId, todayKey, trainingRefreshToken, now])
 
   // タスク管理(submitTaskForm)と同じ「失敗したらthrowする」規約に揃える。以前はSupabaseの
   // エラー時にshowSyncError()を呼んで早期returnしていたが、呼び出し元(submitShortcutForm)は
