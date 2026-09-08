@@ -579,12 +579,17 @@ function OverviewScreen({ todayTasks, now, isCloudMode, trainingStatus, training
             {trainingShortcuts.length > 0 ? (
               <div className="task-list">
                 {trainingShortcuts.map((shortcut) => {
-                  const isDone = todayCompletedExerciseIds.has(shortcut.exercise_id)
+                  // todayCompletedExerciseIdsがnull(クエリ失敗等で確認できない)の間は、
+                  // 「未実施」と決めつけず区別する(2026-09-08、Codexレビュー指摘。trainingStatusの
+                  // done/not_done/unknown3状態と同じ考え方)。
+                  const isUnknown = todayCompletedExerciseIds === null
+                  const isDone = !isUnknown && todayCompletedExerciseIds.has(shortcut.exercise_id)
+                  const statusText = isDone ? '達成' : isUnknown ? '確認できません' : '未実施'
                   return (
                     <article className={`task-row ${isDone ? 'is-done' : ''}`} key={shortcut.id}>
                       <div className="task-content">
                         <h3>{shortcut.label}</h3>
-                        <div className="task-meta"><span>{cardioExerciseName(shortcut.exercise_id)}</span><span className={isDone ? '' : 'urgent-text'}>・ {isDone ? '達成' : '未実施'}</span></div>
+                        <div className="task-meta"><span>{cardioExerciseName(shortcut.exercise_id)}</span><span className={isDone ? '' : 'urgent-text'}>・ {statusText}</span></div>
                       </div>
                       <div className="single-actions">
                         <button className="edit-button" onClick={() => onEditShortcut(shortcut)} aria-label={`${shortcut.label}を編集`}>編集</button>
@@ -994,7 +999,7 @@ function App() {
   const [resourceForm, setResourceForm] = useState(blankResourceForm)
   const [editingResourceId, setEditingResourceId] = useState(null)
   const [trainingShortcuts, setTrainingShortcuts] = useState([]) // 全体管理画面の筋トレ欄に出す「タスク」定義。達成状況はここには持たず、todayCompletedExerciseIdsと突き合わせて都度判定する
-  const [todayCompletedExerciseIds, setTodayCompletedExerciseIds] = useState(() => new Set()) // 今日Supabase上に記録がある種目id一覧(training_session_exercises由来)
+  const [todayCompletedExerciseIds, setTodayCompletedExerciseIds] = useState(() => new Set()) // 今日Supabase上に記録がある種目id一覧(training_session_exercises由来)。Setなら確定、nullは「確認できない」(下のuseEffect参照)
   const [isShortcutFormOpen, setIsShortcutFormOpen] = useState(false)
   const [shortcutForm, setShortcutForm] = useState(blankShortcutForm)
   const [editingShortcutId, setEditingShortcutId] = useState(null)
@@ -1043,6 +1048,25 @@ function App() {
     return () => window.clearInterval(timer)
   }, [])
 
+  // training-menuは別タブ/別ウィンドウで開く(target="_blank")ため、記録して戻ってきても
+  // このReactアプリのstateは自動更新されない。タブが再びアクティブになった時点で下の3つの
+  // 筋トレ関連useEffect(trainingStatus/trainingShortcuts/todayCompletedExerciseIds)を
+  // 再実行させるためのトリガー(2026-09-08、Codexレビュー指摘: training-menu側で記録・削除した
+  // 直後は「全体管理画面を開き直すまで」表示が更新されないと分かっていたが、タブ切り替え程度の
+  // 操作で自然に更新されるようにした方が体験が良いため追加した)。
+  const [trainingRefreshToken, setTrainingRefreshToken] = useState(0)
+  useEffect(() => {
+    function handleVisible() {
+      if (document.visibilityState === 'visible') setTrainingRefreshToken((t) => t + 1)
+    }
+    window.addEventListener('focus', handleVisible)
+    document.addEventListener('visibilitychange', handleVisible)
+    return () => {
+      window.removeEventListener('focus', handleVisible)
+      document.removeEventListener('visibilitychange', handleVisible)
+    }
+  }, [])
+
   // 全体管理画面の筋トレ欄(フェーズ5)。training-menu(別リポジトリ、別オリジン)は認証を共有しない
   // ため、ここではSupabaseの`training_sessions`テーブルを直接見て「今日やったか」を判定する。
   // 1件も無ければtraining-menu側でまだクラウド同期を使ったことがない可能性が高いため'unknown'
@@ -1080,7 +1104,7 @@ function App() {
         if (!cancelled) setTrainingStatus('unknown')
       })
     return () => { cancelled = true }
-  }, [isCloudMode, trainingUserId, todayKey])
+  }, [isCloudMode, trainingUserId, todayKey, trainingRefreshToken])
 
   // 筋トレショートカット機能(2026-09-08〜)。ショートカットの「定義」一覧(training_shortcuts)と、
   // 「今日実施済みの種目id一覧」(training_session_exercisesをexercise_id単位で集約したもの)を
@@ -1105,8 +1129,14 @@ function App() {
       })
       .catch(() => {})
     return () => { cancelled = true }
-  }, [isCloudMode, trainingUserId])
+  }, [isCloudMode, trainingUserId, trainingRefreshToken])
 
+  // todayCompletedExerciseIdsは3値: Set(成功、達成済みexercise_idの集合。0件なら空Set) / null
+  // (クラウド未接続でない/クエリ失敗で「確認できない」) / (非クラウドモードは常に空Set、
+  // 達成という概念自体が無いため確定で「未実施」扱いでよい)。以前はエラー時も空Setにしており、
+  // 一時的な通信エラーで全ショートカットが「未実施」と誤表示される問題があった
+  // (2026-09-08、Codexレビュー指摘。trainingStatusが元々done/not_done/unknownの3状態を
+  // 区別していたのと同じ考え方を、ここにも揃えた)。
   useEffect(() => {
     if (!isCloudMode || !trainingUserId) {
       setTodayCompletedExerciseIds(new Set())
@@ -1121,7 +1151,7 @@ function App() {
       .then(({ data, error }) => {
         if (cancelled) return
         if (error || !data) {
-          setTodayCompletedExerciseIds(new Set())
+          setTodayCompletedExerciseIds(null)
           return
         }
         const ids = new Set()
@@ -1129,20 +1159,21 @@ function App() {
         setTodayCompletedExerciseIds(ids)
       })
       .catch(() => {
-        if (!cancelled) setTodayCompletedExerciseIds(new Set())
+        if (!cancelled) setTodayCompletedExerciseIds(null)
       })
     return () => { cancelled = true }
-  }, [isCloudMode, trainingUserId, todayKey])
+  }, [isCloudMode, trainingUserId, todayKey, trainingRefreshToken])
 
+  // タスク管理(submitTaskForm)と同じ「失敗したらthrowする」規約に揃える。以前はSupabaseの
+  // エラー時にshowSyncError()を呼んで早期returnしていたが、呼び出し元(submitShortcutForm)は
+  // 戻り値を見ずに常にフォームを閉じていたため、保存に失敗しても入力内容が消えてしまう不具合が
+  // あった(2026-09-08、Codexレビュー指摘)。
   async function addTrainingShortcut(label, exerciseId) {
     if (isCloudMode) {
       const { data, error } = await supabase.from('training_shortcuts').insert({
         user_id: session.user.id, label, exercise_id: exerciseId, sort_order: trainingShortcuts.length,
       }).select('*').single()
-      if (error) {
-        showSyncError(error)
-        return
-      }
+      if (error) throw error
       setTrainingShortcuts((current) => [...current, data])
       return
     }
@@ -1152,10 +1183,7 @@ function App() {
   async function updateTrainingShortcut(id, label, exerciseId) {
     if (isCloudMode) {
       const { error } = await supabase.from('training_shortcuts').update({ label, exercise_id: exerciseId }).eq('id', id).eq('user_id', session.user.id)
-      if (error) {
-        showSyncError(error)
-        return
-      }
+      if (error) throw error
     }
     setTrainingShortcuts((current) => current.map((s) => (s.id === id ? { ...s, label, exercise_id: exerciseId } : s)))
   }
@@ -1163,10 +1191,7 @@ function App() {
   async function deleteTrainingShortcut(id) {
     if (isCloudMode) {
       const { error } = await supabase.from('training_shortcuts').delete().eq('id', id).eq('user_id', session.user.id)
-      if (error) {
-        showSyncError(error)
-        return
-      }
+      if (error) throw error
     }
     setTrainingShortcuts((current) => current.filter((s) => s.id !== id))
   }
@@ -1526,20 +1551,28 @@ function App() {
     event.preventDefault()
     const label = String(shortcutForm.label || '').trim()
     if (!label) return
-    if (editingShortcutId) {
-      await updateTrainingShortcut(editingShortcutId, label, shortcutForm.exerciseId)
-    } else {
-      await addTrainingShortcut(label, shortcutForm.exerciseId)
+    try {
+      if (editingShortcutId) {
+        await updateTrainingShortcut(editingShortcutId, label, shortcutForm.exerciseId)
+      } else {
+        await addTrainingShortcut(label, shortcutForm.exerciseId)
+      }
+      closeShortcutForm()
+    } catch (error) {
+      showSyncError(error)
     }
-    closeShortcutForm()
   }
 
   async function deleteShortcutFromForm() {
     if (!editingShortcutId) return
     const shortcut = trainingShortcuts.find((item) => item.id === editingShortcutId)
     if (!shortcut || !window.confirm(`「${shortcut.label}」を削除しますか？`)) return
-    await deleteTrainingShortcut(editingShortcutId)
-    closeShortcutForm()
+    try {
+      await deleteTrainingShortcut(editingShortcutId)
+      closeShortcutForm()
+    } catch (error) {
+      showSyncError(error)
+    }
   }
 
   function openCreateForm() {

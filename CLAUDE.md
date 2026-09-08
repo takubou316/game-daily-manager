@@ -111,6 +111,44 @@ Googleログインをテストするには、Supabase Auth設定の「Redirect U
 突き合わせて確認済み。両アプリを同じ端末・同じタイムゾーンのブラウザで使う前提が崩れない限り
 日付判定はずれない。
 
+## 筋トレショートカット（2026-09-08〜）
+
+「外の堤防を一周歩く」のように自由な名前のタスクをユーザーが登録し、特定の有酸素種目
+（`CARDIO_EXERCISE_OPTIONS`、training-menu側の`type: 'cardio'`種目のid/nameを手動で複製した
+もの）に紐づけると、ワンタップでtraining-menuの該当種目の記録画面（`?quickstart=<exerciseId>`、
+training-menu側の`maybeHandleEntryParams()`が受ける）へ直接遷移できる機能。
+
+- **定義と実績を分離する設計**（`games`/`tasks`と同じ考え方）。新規テーブル`training_shortcuts`は
+  ショートカットの「定義」（ラベル・紐づけ種目）だけを持ち、「達成したか」は保存しない。全体管理
+  画面を開くたびに、既存の`training_session_exercises`をその日の`exercise_id`単位で都度クエリし
+  （`todayCompletedExerciseIds`）、ショートカットの`exercise_id`と一致すれば「達成」と判定する。
+  `exercise_id`での厳密な一致のみで判定するため、別の種目を記録しても無関係なショートカットが
+  誤って達成扱いになることはない
+- `link_type`カラムは将来「種目に紐づかないショートカット」（例: 自分で作る画面への単純なリンク）
+  にも対応できるよう汎用的な名前にしているが、現状は`'exercise'`のみサポート
+- 達成済みショートカットをタップした時は、確認用に`trainingRecordUrl()`
+  （training-menu側の`?view=record`）へ誘導する。未達成時と同じquickstart URLのままだと、
+  確認したいだけなのに毎回新しい記録セッションが始まってしまうため分けている
+- **`todayCompletedExerciseIds`は3値**: `Set`（成功、達成済み`exercise_id`の集合）／`null`
+  （クエリ失敗等で「確認できない」）／非クラウドモードは常に空`Set`（達成という概念自体が
+  無いため確定で「未実施」扱い）。`trainingStatus`（全体管理画面の筋トレ欄、フェーズ5）の
+  done/not_done/unknownと同じ考え方で、一時的な通信エラーで全ショートカットが「未実施」と
+  誤表示されないようにしている
+- **タブ復帰時の自動再取得**: training-menuは別タブ/別ウィンドウで開く(`target="_blank"`)ため、
+  記録・削除して戻ってきてもReactのstateは自動更新されない。`trainingRefreshToken`
+  （`focus`/`visibilitychange`イベントでインクリメント）を`trainingStatus`/`trainingShortcuts`/
+  `todayCompletedExerciseIds`の3つのuseEffectの依存配列に加えており、全体管理画面のタブへ
+  戻ってきた時点で自動的に再取得される
+- **フォーム保存の失敗時はフォームを閉じない**: `addTrainingShortcut`/`updateTrainingShortcut`/
+  `deleteTrainingShortcut`はSupabaseエラー時に`showSyncError(error)`を呼ぶのではなく`throw`する
+  規約にしている（`submitTaskForm`と同じ規約）。呼び出し元(`submitShortcutForm`等)がtry/catchで
+  受け、成功した時だけ`closeShortcutForm()`する。以前は失敗時も無条件でフォームを閉じており、
+  入力内容が失われる不具合があった（2026-09-08、設計レビューで発見）
+
+設計レビュー（`codex-implementer`経由、diffベース）で発見・修正した項目は上記に反映済み。
+その他、指摘はされたが対応を見送った項目は[training-menu/CLAUDE.md](../training-menu/CLAUDE.md)の
+「既知の制約」節（複数タブでの同期競合）を参照。
+
 ## 機微データについて
 
 体重・トレーニング内容はゲームの日課データよりやや機微性が高いが、他人の秘密情報を預かる
