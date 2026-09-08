@@ -392,6 +392,14 @@ function trainingQuickstartUrl(exerciseId) {
   return `${TRAINING_MENU_URL}?quickstart=${encodeURIComponent(exerciseId)}`
 }
 
+// 既に「達成」済みのショートカットをタップした時の遷移先。quickstartURLのまま(未達成時と同じ)
+// だと、確認したいだけなのに毎回新しいクイックスタートセッションが始まってしまうため、
+// training-menu側の記録タブ(今日を選んだ状態のカレンダー)を直接開く別のURLにする
+// (2026-09-08、実機フィードバックで追加)。
+function trainingRecordUrl() {
+  return `${TRAINING_MENU_URL}?view=record`
+}
+
 function cardioExerciseName(exerciseId) {
   return CARDIO_EXERCISE_OPTIONS.find((ex) => ex.id === exerciseId)?.name || exerciseId
 }
@@ -580,7 +588,7 @@ function OverviewScreen({ todayTasks, now, isCloudMode, trainingStatus, training
                       </div>
                       <div className="single-actions">
                         <button className="edit-button" onClick={() => onEditShortcut(shortcut)} aria-label={`${shortcut.label}を編集`}>編集</button>
-                        <a className={`complete-button shortcut-start-link ${isDone ? 'checked' : ''}`} href={trainingQuickstartUrl(shortcut.exercise_id)} target="_blank" rel="noopener noreferrer">
+                        <a className={`complete-button shortcut-start-link ${isDone ? 'checked' : ''}`} href={isDone ? trainingRecordUrl() : trainingQuickstartUrl(shortcut.exercise_id)} target="_blank" rel="noopener noreferrer">
                           <span className="check-icon">{isDone ? '✓' : ''}</span>
                           <span>{isDone ? '達成' : '開始する'}</span>
                         </a>
