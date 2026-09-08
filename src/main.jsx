@@ -504,7 +504,7 @@ function TaskRow({ task, onToggle, onIncrement, onDecrement, onCollect, onEdit, 
 // 編集モーダルはゲームタスク管理画面側にしか描画されないため、TaskRowへはonEditを渡さない
 // （2026-09-07Codexレビュー指摘: onEditを渡すと押しても何も起きないボタンになってしまうため、
 // TaskRow側もonEdit未指定なら編集ボタン自体を出さないよう修正した）。
-function OverviewScreen({ todayTasks, now, isCloudMode, trainingStatus, trainingShortcuts, todayCompletedExerciseIds, mobileTab, onMobileTabChange, onToggle, onIncrement, onDecrement, onCollect, onOpenGameTasks, onSignOut, onAddShortcut, onEditShortcut }) {
+function OverviewScreen({ todayTasks, now, isCloudMode, trainingStatus, trainingShortcuts, todayCompletedExerciseIds, mobileTab, onMobileTabChange, onToggle, onIncrement, onDecrement, onCollect, onOpenGameTasks, onSignOut, onAddShortcut, onEditShortcut, syncError, onDismissSyncError }) {
   const pendingTodayCount = todayTasks.filter((task) => !isTaskCompleted(task, now)).length
   return (
     <div className="app-shell overview-shell">
@@ -519,6 +519,11 @@ function OverviewScreen({ todayTasks, now, isCloudMode, trainingStatus, training
       </header>
 
       <main className="main-content">
+        {/* 2026-09-08発覚: このエラーバナーは元々ゲームタスク管理画面側にしか描画されておらず、
+            全体管理画面でtraining_shortcutsへの保存が失敗しても(例: マイグレーション未実行で
+            テーブルが無い)ユーザーには何も起きなかったように見えてしまっていた。ショートカット
+            追加はまずこの画面で行うため、ここにも同じバナーを描画する。 */}
+        {syncError && <div className="sync-error" role="alert">{syncError}<button type="button" onClick={onDismissSyncError} aria-label="エラーを閉じる">×</button></div>}
         <section className="welcome-row">
           <div>
             <p className="eyebrow">TODAY'S ROUTINE</p>
@@ -1747,6 +1752,8 @@ function App() {
           onSignOut={signOut}
           onAddShortcut={openShortcutCreateForm}
           onEditShortcut={openShortcutEditForm}
+          syncError={syncError}
+          onDismissSyncError={() => setSyncError('')}
         />
         {isShortcutFormOpen && (
           <TrainingShortcutFormModal
