@@ -64,6 +64,27 @@ const blankResourceForm = {
   checkUrl: defaultResourceUrls.原神,
 }
 
+// training-menu(別リポジトリ)のjs/exercises-data.jsにあるtype:'cardio'種目のid/nameだけを
+// 複製したもの。ショートカット追加フォームの選択肢に使う。別リポジトリなので動的に取得できず、
+// training-menu側で種目を追加・変更した場合はここも手動で更新が必要(2026-09-08、筋トレ
+// ショートカット機能追加時に決めた運用)。
+const CARDIO_EXERCISE_OPTIONS = [
+  { id: 'walking', name: 'ウォーキング' },
+  { id: 'running', name: 'ランニング' },
+  { id: 'outdoor_cycling', name: '自転車（屋外）' },
+  { id: 'stationary_bike', name: 'エアロバイク（室内）' },
+  { id: 'elliptical', name: 'エリプティカル（クロストレーナー）' },
+  { id: 'rowing_machine', name: 'ローイングマシン' },
+  { id: 'jump_rope', name: '縄跳び' },
+  { id: 'stair_climbing', name: '階段昇降・ステッパー' },
+  { id: 'swimming', name: '水泳' },
+]
+
+const blankShortcutForm = {
+  label: '',
+  exerciseId: CARDIO_EXERCISE_OPTIONS[0].id,
+}
+
 function getGameVisual(game) {
   return gameVisuals[game] || { icon: '●', tone: 'blue' }
 }
@@ -364,6 +385,17 @@ function todayDateKey(date = new Date()) {
 // training-menu(別リポジトリ、別オリジン)の公開URL。全体管理画面からの遷移リンクに使う。
 const TRAINING_MENU_URL = 'https://takubou316.github.io/training-menu/'
 
+// 筋トレショートカット(2026-09-08〜)から、training-menu側の該当種目の記録画面へ直接遷移する
+// リンクを作る。training-menu側は起動時にこの`quickstart`パラメータを見て、通常の
+// メニュー作成フローをスキップし、この種目だけの最小メニューを自動生成して記録画面まで進める。
+function trainingQuickstartUrl(exerciseId) {
+  return `${TRAINING_MENU_URL}?quickstart=${encodeURIComponent(exerciseId)}`
+}
+
+function cardioExerciseName(exerciseId) {
+  return CARDIO_EXERCISE_OPTIONS.find((ex) => ex.id === exerciseId)?.name || exerciseId
+}
+
 function urgencyText(task, now = new Date()) {
   if (task.type === 'stock') {
     const currentStock = getCurrentStock(task, now)
@@ -472,7 +504,7 @@ function TaskRow({ task, onToggle, onIncrement, onDecrement, onCollect, onEdit, 
 // 編集モーダルはゲームタスク管理画面側にしか描画されないため、TaskRowへはonEditを渡さない
 // （2026-09-07Codexレビュー指摘: onEditを渡すと押しても何も起きないボタンになってしまうため、
 // TaskRow側もonEdit未指定なら編集ボタン自体を出さないよう修正した）。
-function OverviewScreen({ todayTasks, now, isCloudMode, trainingStatus, mobileTab, onMobileTabChange, onToggle, onIncrement, onDecrement, onCollect, onOpenGameTasks, onSignOut }) {
+function OverviewScreen({ todayTasks, now, isCloudMode, trainingStatus, trainingShortcuts, todayCompletedExerciseIds, mobileTab, onMobileTabChange, onToggle, onIncrement, onDecrement, onCollect, onOpenGameTasks, onSignOut, onAddShortcut, onEditShortcut }) {
   const pendingTodayCount = todayTasks.filter((task) => !isTaskCompleted(task, now)).length
   return (
     <div className="app-shell overview-shell">
@@ -531,7 +563,28 @@ function OverviewScreen({ todayTasks, now, isCloudMode, trainingStatus, mobileTa
               <div><h2>筋トレ</h2><p>training-menu</p></div>
               <a className="add-task-button" href={TRAINING_MENU_URL} target="_blank" rel="noopener noreferrer">開く <span>→</span></a>
             </div>
-            {trainingStatus === 'done' ? (
+            {trainingShortcuts.length > 0 ? (
+              <div className="task-list">
+                {trainingShortcuts.map((shortcut) => {
+                  const isDone = todayCompletedExerciseIds.has(shortcut.exercise_id)
+                  return (
+                    <article className={`task-row ${isDone ? 'is-done' : ''}`} key={shortcut.id}>
+                      <div className="task-content">
+                        <h3>{shortcut.label}</h3>
+                        <div className="task-meta"><span>{cardioExerciseName(shortcut.exercise_id)}</span><span className={isDone ? '' : 'urgent-text'}>・ {isDone ? '達成' : '未実施'}</span></div>
+                      </div>
+                      <div className="single-actions">
+                        <button className="edit-button" onClick={() => onEditShortcut(shortcut)} aria-label={`${shortcut.label}を編集`}>編集</button>
+                        <a className={`complete-button shortcut-start-link ${isDone ? 'checked' : ''}`} href={trainingQuickstartUrl(shortcut.exercise_id)} target="_blank" rel="noopener noreferrer">
+                          <span className="check-icon">{isDone ? '✓' : ''}</span>
+                          <span>{isDone ? '達成' : '開始する'}</span>
+                        </a>
+                      </div>
+                    </article>
+                  )
+                })}
+              </div>
+            ) : trainingStatus === 'done' ? (
               <div className="empty-state overview-training-done">
                 <span>✅</span>
                 <strong>今日はもう実施済みです</strong>
@@ -550,6 +603,7 @@ function OverviewScreen({ todayTasks, now, isCloudMode, trainingStatus, mobileTa
                 <p>training-menu側でクラウド同期にログインすると、ここに実施状況が表示されます。</p>
               </div>
             )}
+            <button type="button" className="add-task-button overview-add-shortcut-button" onClick={onAddShortcut}>＋ ショートカットを追加</button>
           </section>
         </div>
       </main>
@@ -835,6 +889,36 @@ function ResourceCard({ resource, now, onConsume, onEdit }) {
   )
 }
 
+// 筋トレショートカットの追加・編集フォーム。一覧表示自体はOverviewScreen側のカードに直接
+// 出しているため、このモーダルは1件分のフォームだけを持つ(ResourceManagerModalのような
+// 「フォーム+一覧」の複合モーダルにはしていない)。
+function TrainingShortcutFormModal({ form, isEditing, onChange, onClose, onSubmit, onDelete }) {
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <section className="task-modal" role="dialog" aria-modal="true" aria-labelledby="shortcut-form-title">
+        <div className="modal-heading">
+          <div><p className="eyebrow">TRAINING SHORTCUT</p><h2 id="shortcut-form-title">{isEditing ? 'ショートカットを編集' : 'ショートカットを追加'}</h2><p>タップするとtraining-menuの記録画面へ直接移動できます。</p></div>
+          <button className="modal-close" onClick={onClose} aria-label="閉じる">×</button>
+        </div>
+        <form onSubmit={onSubmit}>
+          <label className="form-field full-field"><span>タスク名</span><input required value={form.label} onChange={(event) => onChange('label', event.target.value)} placeholder="例：外の堤防を一周歩く" maxLength={100} /></label>
+          <label className="form-field full-field">
+            <span>種目</span>
+            <select value={form.exerciseId} onChange={(event) => onChange('exerciseId', event.target.value)}>
+              {CARDIO_EXERCISE_OPTIONS.map((ex) => <option key={ex.id} value={ex.id}>{ex.name}</option>)}
+            </select>
+            <small>この種目をtraining-menuで記録すると、達成扱いになります。</small>
+          </label>
+          <div className="modal-actions">
+            <div>{isEditing && <button type="button" className="danger-link delete-link" onClick={onDelete}>このショートカットを削除</button>}</div>
+            <div className="modal-main-actions"><button type="button" className="cancel-button" onClick={onClose}>閉じる</button><button type="submit" className="save-button">{isEditing ? '変更を保存' : '追加する'}</button></div>
+          </div>
+        </form>
+      </section>
+    </div>
+  )
+}
+
 function ResourceManagerModal({ resources, form, editingId, availableGames, now, onChange, onSubmit, onEdit, onDelete, onClose }) {
   const gameSuggestions = getGameSuggestions(availableGames, form.game)
 
@@ -896,6 +980,11 @@ function App() {
   const [isResourceManagerOpen, setIsResourceManagerOpen] = useState(false)
   const [resourceForm, setResourceForm] = useState(blankResourceForm)
   const [editingResourceId, setEditingResourceId] = useState(null)
+  const [trainingShortcuts, setTrainingShortcuts] = useState([]) // 全体管理画面の筋トレ欄に出す「タスク」定義。達成状況はここには持たず、todayCompletedExerciseIdsと突き合わせて都度判定する
+  const [todayCompletedExerciseIds, setTodayCompletedExerciseIds] = useState(() => new Set()) // 今日Supabase上に記録がある種目id一覧(training_session_exercises由来)
+  const [isShortcutFormOpen, setIsShortcutFormOpen] = useState(false)
+  const [shortcutForm, setShortcutForm] = useState(blankShortcutForm)
+  const [editingShortcutId, setEditingShortcutId] = useState(null)
   const [session, setSession] = useState(null)
   const [authLoading, setAuthLoading] = useState(isSupabaseConfigured)
   const [dataLoading, setDataLoading] = useState(isSupabaseConfigured)
@@ -979,6 +1068,95 @@ function App() {
       })
     return () => { cancelled = true }
   }, [isCloudMode, trainingUserId, todayKey])
+
+  // 筋トレショートカット機能(2026-09-08〜)。ショートカットの「定義」一覧(training_shortcuts)と、
+  // 「今日実施済みの種目id一覧」(training_session_exercisesをexercise_id単位で集約したもの)を
+  // 別々に取得し、後者にショートカットのexercise_idが含まれていれば「達成」と判定する
+  // (ゲームタスクと同じく定義と実績を分離する設計。exercise_idで正確に区別するため、別の種目を
+  // 記録しても無関係なショートカットが誤って達成扱いにならない)。
+  useEffect(() => {
+    if (!isCloudMode || !trainingUserId) {
+      setTrainingShortcuts([])
+      return undefined
+    }
+    let cancelled = false
+    supabase
+      .from('training_shortcuts')
+      .select('*')
+      .eq('user_id', trainingUserId)
+      .eq('active', true)
+      .order('sort_order', { ascending: true })
+      .then(({ data, error }) => {
+        if (cancelled || error || !data) return
+        setTrainingShortcuts(data)
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [isCloudMode, trainingUserId])
+
+  useEffect(() => {
+    if (!isCloudMode || !trainingUserId) {
+      setTodayCompletedExerciseIds(new Set())
+      return undefined
+    }
+    let cancelled = false
+    supabase
+      .from('training_sessions')
+      .select('training_session_exercises(exercise_id)')
+      .eq('user_id', trainingUserId)
+      .eq('session_date', todayKey)
+      .then(({ data, error }) => {
+        if (cancelled) return
+        if (error || !data) {
+          setTodayCompletedExerciseIds(new Set())
+          return
+        }
+        const ids = new Set()
+        data.forEach((session) => (session.training_session_exercises || []).forEach((ex) => ids.add(ex.exercise_id)))
+        setTodayCompletedExerciseIds(ids)
+      })
+      .catch(() => {
+        if (!cancelled) setTodayCompletedExerciseIds(new Set())
+      })
+    return () => { cancelled = true }
+  }, [isCloudMode, trainingUserId, todayKey])
+
+  async function addTrainingShortcut(label, exerciseId) {
+    if (isCloudMode) {
+      const { data, error } = await supabase.from('training_shortcuts').insert({
+        user_id: session.user.id, label, exercise_id: exerciseId, sort_order: trainingShortcuts.length,
+      }).select('*').single()
+      if (error) {
+        showSyncError(error)
+        return
+      }
+      setTrainingShortcuts((current) => [...current, data])
+      return
+    }
+    setTrainingShortcuts((current) => [...current, { id: `local-${Date.now()}`, label, exercise_id: exerciseId, active: true }])
+  }
+
+  async function updateTrainingShortcut(id, label, exerciseId) {
+    if (isCloudMode) {
+      const { error } = await supabase.from('training_shortcuts').update({ label, exercise_id: exerciseId }).eq('id', id).eq('user_id', session.user.id)
+      if (error) {
+        showSyncError(error)
+        return
+      }
+    }
+    setTrainingShortcuts((current) => current.map((s) => (s.id === id ? { ...s, label, exercise_id: exerciseId } : s)))
+  }
+
+  async function deleteTrainingShortcut(id) {
+    if (isCloudMode) {
+      const { error } = await supabase.from('training_shortcuts').delete().eq('id', id).eq('user_id', session.user.id)
+      if (error) {
+        showSyncError(error)
+        return
+      }
+    }
+    setTrainingShortcuts((current) => current.filter((s) => s.id !== id))
+  }
 
   function clearGameLongPress() {
     if (gameLongPressRef.current.timer) window.clearTimeout(gameLongPressRef.current.timer)
@@ -1310,6 +1488,47 @@ function App() {
     setResourceForm({ ...blankResourceForm, game: nextGame, checkUrl: getDefaultResourceUrl(nextGame) })
   }
 
+  function openShortcutCreateForm() {
+    setEditingShortcutId(null)
+    setShortcutForm(blankShortcutForm)
+    setIsShortcutFormOpen(true)
+  }
+
+  function openShortcutEditForm(shortcut) {
+    setEditingShortcutId(shortcut.id)
+    setShortcutForm({ label: shortcut.label, exerciseId: shortcut.exercise_id })
+    setIsShortcutFormOpen(true)
+  }
+
+  function closeShortcutForm() {
+    setIsShortcutFormOpen(false)
+    setEditingShortcutId(null)
+  }
+
+  function updateShortcutForm(field, value) {
+    setShortcutForm((current) => ({ ...current, [field]: value }))
+  }
+
+  async function submitShortcutForm(event) {
+    event.preventDefault()
+    const label = String(shortcutForm.label || '').trim()
+    if (!label) return
+    if (editingShortcutId) {
+      await updateTrainingShortcut(editingShortcutId, label, shortcutForm.exerciseId)
+    } else {
+      await addTrainingShortcut(label, shortcutForm.exerciseId)
+    }
+    closeShortcutForm()
+  }
+
+  async function deleteShortcutFromForm() {
+    if (!editingShortcutId) return
+    const shortcut = trainingShortcuts.find((item) => item.id === editingShortcutId)
+    if (!shortcut || !window.confirm(`「${shortcut.label}」を削除しますか？`)) return
+    await deleteTrainingShortcut(editingShortcutId)
+    closeShortcutForm()
+  }
+
   function openCreateForm() {
     const today = new Date()
     setTaskForm({ ...blankTaskForm, game: selectedGame === 'すべて' ? '原神' : selectedGame, startDate: toDateInputValue(today), endDate: toDateInputValue(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 7)), limitedDays: 7, limitedHours: 0 })
@@ -1510,20 +1729,36 @@ function App() {
 
   if (view === 'overview') {
     return (
-      <OverviewScreen
-        todayTasks={todayTasks}
-        now={now}
-        isCloudMode={isCloudMode}
-        trainingStatus={trainingStatus}
-        mobileTab={overviewMobileTab}
-        onMobileTabChange={setOverviewMobileTab}
-        onToggle={toggleTask}
-        onIncrement={incrementTask}
-        onDecrement={decrementTask}
-        onCollect={collectStock}
-        onOpenGameTasks={() => setView('gameTasks')}
-        onSignOut={signOut}
-      />
+      <>
+        <OverviewScreen
+          todayTasks={todayTasks}
+          now={now}
+          isCloudMode={isCloudMode}
+          trainingStatus={trainingStatus}
+          trainingShortcuts={trainingShortcuts}
+          todayCompletedExerciseIds={todayCompletedExerciseIds}
+          mobileTab={overviewMobileTab}
+          onMobileTabChange={setOverviewMobileTab}
+          onToggle={toggleTask}
+          onIncrement={incrementTask}
+          onDecrement={decrementTask}
+          onCollect={collectStock}
+          onOpenGameTasks={() => setView('gameTasks')}
+          onSignOut={signOut}
+          onAddShortcut={openShortcutCreateForm}
+          onEditShortcut={openShortcutEditForm}
+        />
+        {isShortcutFormOpen && (
+          <TrainingShortcutFormModal
+            form={shortcutForm}
+            isEditing={editingShortcutId !== null}
+            onChange={updateShortcutForm}
+            onClose={closeShortcutForm}
+            onSubmit={submitShortcutForm}
+            onDelete={deleteShortcutFromForm}
+          />
+        )}
+      </>
     )
   }
 

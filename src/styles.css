@@ -909,3 +909,14 @@ h1 { margin-bottom: 8px; font-size: clamp(28px, 4vw, 38px); letter-spacing: -.05
     margin-bottom: 34px;
   }
 }
+
+/* 筋トレショートカット(2026-09-08〜)の「開始する」リンク。既存の.complete-button(ゲームタスクの
+   完了ボタン)は560px以下でテキストラベルを隠しチェックアイコンだけにするルールがあるが、
+   ショートカットの「開始する」は未達成時アイコンが空文字のため、そのルールを適用すると
+   ボタンの中身が空の四角になってしまう(モバイル実機確認で発覚)。ショートカット側だけラベルを
+   常に表示するよう上書きする。 */
+@media (max-width: 560px) {
+  .shortcut-start-link > span:last-child {
+    display: inline !important;
+  }
+}

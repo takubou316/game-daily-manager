@@ -174,3 +174,28 @@ create policy "training_session_sets: own rows" on public.training_session_sets
 create index if not exists training_sessions_user_date_idx on public.training_sessions(user_id, session_date desc);
 create index if not exists training_session_exercises_session_idx on public.training_session_exercises(user_id, session_id, order_index);
 create index if not exists training_session_sets_exercise_idx on public.training_session_sets(user_id, session_exercise_id, set_index);
+
+-- 筋トレショートカット機能(2026-09-08〜)で追加。詳細は
+-- supabase/migrations/20260908_add_training_shortcuts.sql と CLAUDE.mdを参照。
+-- 全体管理画面から特定種目へワンタップで遷移できるタスクの「定義」のみを持つ
+-- (達成状況はtraining_session_exercisesを都度クエリして判定する)。
+
+create table if not exists public.training_shortcuts (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  label text not null check (char_length(trim(label)) between 1 and 100),
+  link_type text not null default 'exercise' check (link_type in ('exercise')),
+  exercise_id text not null check (char_length(exercise_id) between 1 and 100),
+  sort_order integer not null default 0 check (sort_order >= 0),
+  active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.training_shortcuts enable row level security;
+
+drop policy if exists "training_shortcuts: own rows" on public.training_shortcuts;
+create policy "training_shortcuts: own rows" on public.training_shortcuts
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+create index if not exists training_shortcuts_user_active_idx on public.training_shortcuts(user_id, active, sort_order);

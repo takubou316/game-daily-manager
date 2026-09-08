@@ -28,7 +28,25 @@
   ユーザーに追加してもらった上で3状態すべてを実データで確認済み。詳細は
   [INTEGRATION_ROADMAP.md](INTEGRATION_ROADMAP.md)のフェーズ5、`CLAUDE.md`の「全体管理画面の
   筋トレ欄」参照
-- 次はフェーズ6（実機総合検証・仕上げ）
+- フェーズ6（実機総合検証・仕上げ）完了。実機フィードバックでモバイル幅のゲームタスク/筋トレ
+  タブ切り替え、ショートカット「開始する」ボタンのラベル消失（`.complete-button`スタイル誤爆）
+  等を修正済み
+- **2026-09-08: 筋トレショートカット機能を追加（未コミット・マイグレーション未実行）**。
+  「外の堤防を一周歩く」のように自由な名前のタスクを登録し、種目(exercise_id)に紐づけて
+  ワンタップでtraining-menu側の記録画面へ直接遷移できる機能。達成判定は「記録さえあればOK」
+  （その日の`training_session_exercises`に同じ`exercise_id`があるか）というシンプルな存在判定に
+  した。詳細はCLAUDE.md追記予定・`supabase/migrations/20260908_add_training_shortcuts.sql`参照。
+  - `src/main.jsx`: `TrainingShortcutFormModal`新設、`OverviewScreen`の筋トレカードをショートカット
+    一覧表示に対応、CRUD一式・今日実施済み種目のクエリを追加
+  - `styles.css`: `.shortcut-start-link`（モバイル幅で`.complete-button`のラベル非表示ルールが
+    誤爆する問題への対処）
+  - **未実施**: Supabase SQL Editorでの`20260908_add_training_shortcuts.sql`実行、
+    git commit/push、Codexへの設計レビュー依頼、実機(PC/iPhone)確認
+  - 対になるtraining-menu側の実装（`?quickstart=<exerciseId>`で記録画面へ直接遷移）は
+    `training-menu/js/app.js`の`maybeStartQuickstart()`として実装・PCプレビューで動作確認済み
+    （詳細は`training-menu/HANDOFF.md`参照）
+  - 次回のスコープ外として明示的に持ち越し: training-menu側の週間プランを全体管理画面へ
+    「今日は○○の日です」の1行で表示する機能
 
 ## 現在の状態
 
@@ -84,10 +102,18 @@
 
 ## 次の作業
 
-**最優先**: [INTEGRATION_ROADMAP.md](INTEGRATION_ROADMAP.md)のフェーズ6（実機総合検証・仕上げ）は
-進行中。実機フィードバックでモバイル幅の切り替えボタンを追加済み（要・実機での再確認）。残りは
-フェーズ4から持ち越しの「実機でのオフライン→オンライン復帰確認」と、今回のモバイル切り替え
-ボタンの実機再確認。以下は統合作業着手前からの既存の次の作業。
+**最優先**: 筋トレショートカット機能（2026-09-08追加分）の仕上げ。
+1. ユーザーに`supabase/migrations/20260908_add_training_shortcuts.sql`をSupabase SQL Editorで
+   実行してもらう
+2. `src/main.jsx`/`styles.css`/マイグレーション/`schema.sql`の変更をcommit・push
+3. Codexへ設計・実装レビューを依頼（`codex-implementer`経由、ファイル内容を直接プロンプトへ
+   埋め込む方式）
+4. PC/iPhone実機でショートカット登録→クリック→training-menu記録画面への遷移→記録確定→
+   全体管理画面で達成表示、の一連の流れを確認
+5. 落ち着いたら、フェーズ4から持ち越しの「実機でのオフライン→オンライン復帰確認」も合わせて
+   確認する
+
+以下は統合作業着手前からの既存の次の作業（未着手のまま）。
 
 1. GitHub Actionsの公開完了後、`https://takubou316.github.io/game-daily-manager/`を開いて更新を確認する。
 2. 期間限定タスクを追加し、残り日数・時間の入力、カードの残り時間表示、再読み込み後の保存を確認する。
